@@ -22,27 +22,33 @@ const maxVideos = parseInt(process.env.MAX_VIDEOS) || 5;
 const streamtapeUsername = process.env.STREAMTAPE_API_USERNAME;
 const streamtapePass = process.env.STREAMTAPE_API_PASS;
 const mongoUri = process.env.MONGODB_URI;
+if (!mongoUri) throw new Error('MONGODB_URI is not defined');
 const broadcastAsCopy = process.env.BROADCAST_AS_COPY === 'true';
-const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @Savior_128';
+const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @AbirHasan2005';
 
-// دیتابیس و صف‌ها
+// MongoDB اتصال
 let db;
-MongoClient.connect(mongoUri, { useUnifiedTopology: true })
-  .then((client) => {
+async function connectMongoDB() {
+  try {
+    const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
     console.log('Connected to MongoDB');
-  })
-  .catch((err) => console.error('MongoDB connection error:', err));
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    throw err;
+  }
+}
 
+// ربات
+const bot = new Telegraf(botToken);
+
+// دیتابیس و صف‌ها
 const QueueDB = {};
 const ReplyDB = {};
 const FormatDB = {};
 const TimeGaps = {};
 const broadcastIds = {};
 const BROADCAST_LOG_FILE = 'broadcast.txt';
-
-// ربات
-const bot = new Telegraf(botToken);
 
 // ایجاد پوشه دانلود
 async function ensureDir(userId) {
@@ -53,18 +59,24 @@ async function ensureDir(userId) {
 
 // دکمه‌های اینلاین
 async function createReplyMarkup() {
-  return Markup.inlineKeyboard([
-    [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
-    [
-      Markup.button.url('Support Group', 'https://t.me/linux_repo'),
-      Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
-    ],
-  ]);
+  try {
+    return Markup.inlineKeyboard([
+      [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
+      [
+        Markup.button.url('Support Group', 'https://t.me/linux_repo'),
+        Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
+      ],
+    ]);
+  } catch (error) {
+    console.error('Create reply markup error:', error);
+    return null;
+  }
 }
 
 // افزودن کاربر به دیتابیس
 async function addUserToDatabase(ctx) {
   try {
+    if (!db) throw new Error('Database not connected');
     const userId = ctx.from.id;
     const userExists = await db.collection('users').findOne({ id: userId });
     if (!userExists) {
@@ -153,11 +165,13 @@ async function checkTimeGap(userId) {
 
 // دیتابیس: تنظیمات
 async function getUploadAsDoc(userId) {
+  if (!db) throw new Error('Database not connected');
   const user = await db.collection('users').findOne({ id: userId });
   return user?.upload_as_doc || false;
 }
 
 async function setUploadAsDoc(userId, uploadAsDoc) {
+  if (!db) throw new Error('Database not connected');
   await db.collection('users').updateOne(
     { id: userId },
     { $set: { upload_as_doc: uploadAsDoc, updated_at: new Date() } }
@@ -165,11 +179,13 @@ async function setUploadAsDoc(userId, uploadAsDoc) {
 }
 
 async function getGenerateSampleVideo(userId) {
+  if (!db) throw new Error('Database not connected');
   const user = await db.collection('users').findOne({ id: userId });
   return user?.generate_sample_video || false;
 }
 
 async function setGenerateSampleVideo(userId, generateSampleVideo) {
+  if (!db) throw new Error('Database not connected');
   await db.collection('users').updateOne(
     { id: userId },
     { $set: { generate_sample_video: generateSampleVideo, updated_at: new Date() } }
@@ -177,11 +193,13 @@ async function setGenerateSampleVideo(userId, generateSampleVideo) {
 }
 
 async function getGenerateSs(userId) {
+  if (!db) throw new Error('Database not connected');
   const user = await db.collection('users').findOne({ id: userId });
   return user?.generate_ss || false;
 }
 
 async function setGenerateSs(userId, generateSs) {
+  if (!db) throw new Error('Database not connected');
   await db.collection('users').updateOne(
     { id: userId },
     { $set: { generate_ss: generateSs, updated_at: new Date() } }
@@ -189,6 +207,7 @@ async function setGenerateSs(userId, generateSs) {
 }
 
 async function setThumbnail(userId, fileId) {
+  if (!db) throw new Error('Database not connected');
   await db.collection('users').updateOne(
     { id: userId },
     { $set: { thumbnail: fileId, updated_at: new Date() } }
@@ -196,28 +215,32 @@ async function setThumbnail(userId, fileId) {
 }
 
 async function getThumbnail(userId) {
+  if (!db) throw new Error('Database not connected');
   const user = await db.collection('users').findOne({ id: userId });
   return user?.thumbnail || null;
 }
 
 async function deleteUser(userId) {
+  if (!db) throw new Error('Database not connected');
   await db.collection('users').deleteOne({ id: userId });
 }
 
 async function getAllUsers() {
+  if (!db) throw new Error('Database not connected');
   const users = await db.collection('users').find({}).toArray();
   return users;
 }
 
 async function totalUsersCount() {
+  if (!db) throw new Error('Database not connected');
   return await db.collection('users').countDocuments({});
 }
 
 // دکمه‌های صف
-async function makeButtons(ctx, message, db) {
+async function makeButtons(ctx, message, dbQueue) {
   const markup = [];
   try {
-    const messages = await ctx.telegram.getMessages(message.chat.id, db[message.from.id] || []);
+    const messages = await ctx.telegram.getMessages(message.chat.id, dbQueue[message.from.id] || []);
     for (const msg of messages) {
       const media = msg.video || msg.document;
       if (media) {
@@ -254,11 +277,19 @@ async function uploadToStreamtape(file, editable, fileSize) {
           `**File Name:** \`${filename}\`\n` +
           `**Size:** \`${humanbytes(fileSize)}\`\n` +
           `**Link:** \`${downloadLink}\``;
-        await editable.editMessageText(textEdit, {
-          parse_mode: 'Markdown',
-          disable_web_page_preview: true,
-          reply_markup: Markup.inlineKeyboard([[Markup.button.url('Open Link', downloadLink)]]),
-        });
+        try {
+          await editable.editMessageText(textEdit, {
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true,
+            reply_markup: Markup.inlineKeyboard([[Markup.button.url('Open Link', downloadLink)]]),
+          });
+        } catch (editError) {
+          await editable.reply(textEdit, {
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true,
+            reply_markup: Markup.inlineKeyboard([[Markup.button.url('Open Link', downloadLink)]]),
+          });
+        }
       } else {
         throw new Error('Failed to retrieve download link from Streamtape.');
       }
@@ -267,10 +298,14 @@ async function uploadToStreamtape(file, editable, fileSize) {
     }
   } catch (error) {
     console.error('Streamtape error:', error);
-    await editable.editMessageText(
-      'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/linux_repo).',
-      { parse_mode: 'Markdown' }
-    );
+    try {
+      await editable.reply(
+        'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/linux_repo).',
+        { parse_mode: 'Markdown' }
+      );
+    } catch (replyError) {
+      console.error('Reply error:', replyError);
+    }
   }
 }
 
@@ -288,7 +323,7 @@ async function runFffmpegCommand(command) {
 }
 
 async function mergeVideo(inputFile, userId, message, format) {
-  const outputVid = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${format.toLowerCase()}`);
+  const outputVid = path.join(downPath, userId.toString(), `[@AbirHasan2005]_Merged.${format.toLowerCase()}`);
   const command = [
     'ffmpeg',
     '-f',
@@ -311,7 +346,11 @@ async function mergeVideo(inputFile, userId, message, format) {
     console.log('Merged video file does not exist.');
     return null;
   } catch (error) {
-    await message.editMessageText(`An error occurred while merging videos: ${error.message}`);
+    try {
+      await message.editMessageText(`An error occurred while merging videos: ${error.message}`);
+    } catch (editError) {
+      await message.reply(`An error occurred while merging videos: ${error.message}`);
+    }
     return null;
   }
 }
@@ -449,6 +488,13 @@ function timeFormatter(milliseconds) {
   return parts.join(', ');
 }
 
+function formatTimespan(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${secs}s`;
+}
+
 // آپلود ویدیو
 async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fileSize, startTime) {
   try {
@@ -499,7 +545,11 @@ async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fi
     await ctx.editMessageText('Video uploaded successfully!');
   } catch (error) {
     console.error('Upload error:', error);
-    await ctx.editMessageText(`Failed to upload video!\nError: ${error.message}`);
+    try {
+      await ctx.editMessageText(`Failed to upload video!\nError: ${error.message}`);
+    } catch (editError) {
+      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
+    }
   }
 }
 
@@ -508,10 +558,10 @@ bot.start(async (ctx) => {
   await addUserToDatabase(ctx);
   if ((await forceSub(ctx)) !== 200) return;
   await ctx.reply(
-    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
+    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @AbirHasan2005`,
     {
       reply_markup: Markup.inlineKeyboard([
-        [Markup.button.url('Developer - @Savior_128', 'https://t.me/@Savior_128')],
+        [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
         [
           Markup.button.url('Support Group', 'https://t.me/linux_repo'),
           Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
@@ -563,8 +613,12 @@ bot.on('video', async (ctx) => {
 
   const editable = await ctx.reply('Adding video to queue...', { reply_to_message_id: ctx.message.message_id });
   await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
-  await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Video added to queue!');
-  if (ReplyDB[ctx.from.id]) await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]);
+  try {
+    await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Video added to queue!');
+  } catch (editError) {
+    await ctx.reply('Video added to queue!');
+  }
+  if (ReplyDB[ctx.from.id]) await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]).catch(() => {});
   const reply = await ctx.reply(messageText, { reply_markup: Markup.inlineKeyboard(markup), reply_to_message_id: ctx.message.message_id });
   ReplyDB[ctx.from.id] = reply.message_id;
 });
@@ -590,7 +644,11 @@ bot.on('photo', async (ctx) => {
     );
   } catch (error) {
     console.error('Thumbnail save error:', error);
-    await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Error saving thumbnail!');
+    try {
+      await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Error saving thumbnail!');
+    } catch (editError) {
+      await ctx.reply('Error saving thumbnail!');
+    }
   }
 });
 
@@ -825,7 +883,11 @@ bot.action('deleteThumbnail', async (ctx) => {
     await ctx.editMessageText('Thumbnail deleted!');
   } catch (error) {
     console.error('Delete thumbnail error:', error);
-    await ctx.editMessageText('Error deleting thumbnail.');
+    try {
+      await ctx.editMessageText('Error deleting thumbnail.');
+    } catch (editError) {
+      await ctx.reply('Error deleting thumbnail.');
+    }
   }
 });
 
@@ -862,10 +924,10 @@ bot.action('openSettings', async (ctx) => {
 bot.action('refreshFsub', async (ctx) => {
   if ((await forceSub(ctx)) === 200) {
     await ctx.editMessageText(
-      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
+      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @AbirHasan2005`,
       {
         reply_markup: Markup.inlineKeyboard([
-          [Markup.button.url('Developer - @Savior_128', 'https://t.me/@Savior_128')],
+          [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
           [
             Markup.button.url('Support Group', 'https://t.me/linux_repo'),
             Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
@@ -885,7 +947,7 @@ bot.action(/renameFile_(Yes|No)/, async (ctx) => {
     return;
   }
 
-  let mergedVidPath = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${FormatDB[userId]}`);
+  let mergedVidPath = path.join(downPath, userId.toString(), `[@AbirHasan2005]_Merged.${FormatDB[userId]}`);
   if (ctx.match[1] === 'Yes') {
     await ctx.editMessageText('Send the new file name:');
     const newName = await waitForText(ctx);
@@ -946,21 +1008,26 @@ bot.action(/renameFile_(Yes|No)/, async (ctx) => {
 
 // توابع کمکی
 async function downloadFile(ctx, fileId, filePath, progressCallback) {
-  const file = await ctx.telegram.getFile(fileId);
-  const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
-  const response = await axios.get(url, {
-    responseType: 'stream',
-    onDownloadProgress: (progressEvent) => {
-      if (progressCallback && progressEvent.total) {
-        progressCallback(progressEvent.loaded, progressEvent.total);
-      }
-    },
-  });
-  const writer = response.data.pipe(require('fs').createWriteStream(filePath));
-  await new Promise((resolve, reject) => {
-    writer.on('finish', resolve);
-    writer.on('error', reject);
-  });
+  try {
+    const file = await ctx.telegram.getFile(fileId);
+    const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+    const response = await axios.get(url, {
+      responseType: 'stream',
+      onDownloadProgress: (progressEvent) => {
+        if (progressCallback && progressEvent.total) {
+          progressCallback(progressEvent.loaded, progressEvent.total);
+        }
+      },
+    });
+    const writer = response.data.pipe(require('fs').createWriteStream(filePath));
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+    });
+  } catch (error) {
+    console.error('Download file error:', error);
+    throw error;
+  }
 }
 
 async function deleteAll(root) {
@@ -979,28 +1046,39 @@ async function deleteAll(root) {
 
 async function openSettings(ctx, message) {
   try {
+    if (!db) throw new Error('Database not connected');
     const uploadAsDoc = await getUploadAsDoc(ctx.from.id);
     const generateSampleVideo = await getGenerateSampleVideo(ctx.from.id);
     const generateSs = await getGenerateSs(ctx.from.id);
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      message.message_id,
-      null,
-      'Here You Can Change or Configure Your Settings:',
-      {
-        reply_markup: Markup.inlineKeyboard([
-          [Markup.button.callback(`Upload as ${uploadAsDoc ? 'Document' : 'Video'} ✅`, 'triggerUploadMode')],
-          [Markup.button.callback(`Generate Sample Video ${generateSampleVideo ? '✅' : '❌'}`, 'triggerGenSample')],
-          [Markup.button.callback(`Generate Screenshots ${generateSs ? '✅' : '❌'}`, 'triggerGenSS')],
-          [Markup.button.callback('Show Thumbnail', 'showThumbnail')],
-          [Markup.button.callback('Show Queue Files', 'showQueueFiles')],
-          [Markup.button.callback('Close', 'closeMeh')],
-        ]),
-      }
-    );
+    const settingsText = 'Here You Can Change or Configure Your Settings:';
+    const markup = Markup.inlineKeyboard([
+      [Markup.button.callback(`Upload as ${uploadAsDoc ? 'Document' : 'Video'} ✅`, 'triggerUploadMode')],
+      [Markup.button.callback(`Generate Sample Video ${generateSampleVideo ? '✅' : '❌'}`, 'triggerGenSample')],
+      [Markup.button.callback(`Generate Screenshots ${generateSs ? '✅' : '❌'}`, 'triggerGenSS')],
+      [Markup.button.callback('Show Thumbnail', 'showThumbnail')],
+      [Markup.button.callback('Show Queue Files', 'showQueueFiles')],
+      [Markup.button.callback('Close', 'closeMeh')],
+    ]);
+
+    try {
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        message.message_id,
+        null,
+        settingsText,
+        { reply_markup: markup }
+      );
+    } catch (editError) {
+      console.error('Edit message error:', editError);
+      await ctx.reply(settingsText, { reply_markup: markup });
+    }
   } catch (error) {
     console.error('Settings error:', error);
-    await ctx.editMessageText('Error opening settings.');
+    try {
+      await ctx.reply('Error opening settings.');
+    } catch (replyError) {
+      console.error('Reply error:', replyError);
+    }
   }
 }
 
@@ -1057,13 +1135,6 @@ async function getVideoMetadata(filePath) {
   }
 }
 
-function formatTimespan(seconds) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  return `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${secs}s`;
-}
-
 bot.action('triggerUploadMode', async (ctx) => {
   try {
     const uploadAsDoc = await getUploadAsDoc(ctx.from.id);
@@ -1098,11 +1169,27 @@ bot.action('triggerGenSS', async (ctx) => {
 });
 
 bot.action('closeMeh', async (ctx) => {
-  await ctx.deleteMessage();
-  if (ctx.message.reply_to_message) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id);
+  try {
+    await ctx.deleteMessage();
+    if (ctx.message.reply_to_message) {
+      await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id);
+    }
+  } catch (error) {
+    console.error('Close error:', error);
   }
 });
+
+// راه‌اندازی ربات
+(async () => {
+  try {
+    await connectMongoDB();
+    await bot.launch();
+    console.log('Bot started');
+  } catch (error) {
+    console.error('Startup error:', error);
+    process.exit(1);
+  }
+})();
 
 // مدیریت Webhook
 module.exports = async (req, res) => {
