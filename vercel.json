@@ -14,8 +14,8 @@
     }
   ],
   "env": {
-    "BOT_TOKEN": "",
-    "BOT_OWNER": "1445283714",
+    "BOT_TOKEN": "5115356918:AAFH3T-1f2x4ZdikRQnNoOXXgonLUlwryAQ",
+    "BOT_OWNER": "5059280908",
     "UPDATES_CHANNEL": "",
     "LOG_CHANNEL": "",
     "DOWN_PATH": "./downloads",
