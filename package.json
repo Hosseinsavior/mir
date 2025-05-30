@@ -21,5 +21,23 @@
   "license": "MIT",
   "engines": {
     "node": ">=18.x"
+  },
+  {
+  "name": "atlas_starter_nodejs",
+  "version": "1.0.0",
+  "description": "MongoDB Node.js driver and Atlas Starter Application",
+  "main": "app.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mongodb-university/atlas_starter_nodejs.git"
+  },
+  "author": "chris.cho@mongodb.com",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mongodb-university/atlas_starter_nodejs/issues"
+  },
+  "homepage": "https://github.com/mongodb-university/atlas_starter_nodejs#readme",
+  "dependencies": {
+    "mongodb": "^3.5.9"
   }
-}
+},
