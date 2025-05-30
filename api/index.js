@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const FormData = require('form-data');
 
 // متغیرهای محیطی
-const botToken = process.env.BOT_TOKEN; || '5115356918:AAFH3T-1f2x4ZdikRQnNoOXXgonLUlwryAQ';
+const botToken = process.env.BOT_TOKEN || '5115356918:AAFH3T-1f2x4ZdikRQnNoOXXgonLUlwryAQ';
 const botOwner = process.env.BOT_OWNER || '5059280908';
 const updatesChannel = process.env.UPDATES_CHANNEL;
 const logChannel = process.env.LOG_CHANNEL;
