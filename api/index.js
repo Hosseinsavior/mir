@@ -21,8 +21,7 @@ const timeGap = parseInt(process.env.TIME_GAP) || 5;
 const maxVideos = parseInt(process.env.MAX_VIDEOS) || 5;
 const streamtapeUsername = process.env.STREAMTAPE_API_USERNAME;
 const streamtapePass = process.env.STREAMTAPE_API_PASS;
-const mongoUri = process.env.MONGODB_URI;
-if (!mongoUri) throw new Error('MONGODB_URI is not defined');
+const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://saviorsann:136707nafaS@@cluster0.9otjsyr.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const broadcastAsCopy = process.env.BROADCAST_AS_COPY === 'true';
 const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @AbirHasan2005';
 
