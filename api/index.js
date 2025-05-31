@@ -42,10 +42,9 @@ async function connectMongoDB() {
   try {
     console.log('MONGODB_URI value:', mongoUri);
     console.log('Attempting to connect to MongoDB...');
-console.log('Connected to MongoDB successfully');
     const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
-    console.log('Connected to MongoDB');
+    console.log('Connected to MongoDB successfully');
     if (botOwner) {
       const botInstance = new Telegraf(botToken);
       await botInstance.telegram.sendMessage(botOwner, 'Successfully connected to MongoDB!')
@@ -99,22 +98,20 @@ async function createReplyMarkup() {
 // افزودن کاربر به دیتابیس
 async function addUserToDatabase(ctx) {
   try {
-    // بررسی اتصال به دیتابیس
     if (!db) {
       console.error('Database not connected in addUserToDatabase');
       await ctx.reply(
         'Sorry, the bot cannot connect to the database right now. Please try again later or contact the [Support Group](https://t.me/Savior_128).',
         { parse_mode: 'Markdown', disable_web_page_preview: true }
       );
-      return; // توقف اجرا اگه دیتابیس متصل نباشه
+      return;
     }
-
     const userId = ctx.from.id;
-    console.log(`Checking if user ${userId} exists in the database...`); // لاگ برای دیباگ
+    console.log(`Checking if user ${userId} exists in the database...`);
     const userExists = await db.collection('users').findOne({ id: userId });
     
     if (!userExists) {
-      console.log(`User ${userId} does not exist. Adding to database...`); // لاگ برای دیباگ
+      console.log(`User ${userId} does not exist. Adding to database...`);
       await db.collection('users').insertOne({
         id: userId,
         join_date: new Date().toISOString().split('T')[0],
@@ -125,9 +122,8 @@ async function addUserToDatabase(ctx) {
         username: ctx.from.username || 'unknown',
         updated_at: new Date(),
       });
-      console.log(`User ${userId} added to database successfully.`); // لاگ برای دیباگ
+      console.log(`User ${userId} added to database successfully.`);
 
-      // ارسال پیام به کانال لاگ اگه تنظیم شده باشه
       if (logChannel) {
         const botUsername = (await ctx.telegram.getMe()).username;
         await ctx.telegram.sendMessage(
@@ -135,10 +131,10 @@ async function addUserToDatabase(ctx) {
           `#NEW_USER: \n\nNew User [${ctx.from.first_name}](tg://user?id=${userId}) started @${botUsername} !!`,
           { parse_mode: 'Markdown' }
         );
-        console.log(`Sent new user notification to log channel for user ${userId}.`); // لاگ برای دیباگ
+        console.log(`Sent new user notification to log channel for user ${userId}.`);
       }
     } else {
-      console.log(`User ${userId} already exists in the database.`); // لاگ برای دیباگ
+      console.log(`User ${userId} already exists in the database.`);
     }
   } catch (error) {
     console.error('Add user error:', error);
@@ -148,6 +144,7 @@ async function addUserToDatabase(ctx) {
     );
   }
 }
+
 // بررسی عضویت در کانال
 async function forceSub(ctx) {
   if (!updatesChannel) return 200;
@@ -309,6 +306,7 @@ async function makeButtons(ctx, message, dbQueue) {
   console.log('DEBUG: Final markup structure:', JSON.stringify(markup));
   return markup;
 }
+
 // Streamtape
 async function uploadToStreamtape(file, ctx, fileSize) {
   try {
@@ -349,19 +347,19 @@ async function uploadToStreamtape(file, ctx, fileSize) {
       }
     } else {
       throw new Error('Failed to authenticate with Streamtape API.');
-    }
-  } catch (error) {
-    console.error('Streamtape error:', error);
-    try {
-      await ctx.reply(
-        'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/Savior_128).',
-        { parse_mode: 'Markdown' }
-      );
-    } catch (replyError) {
-      console.error('Reply error:', replyError);
+      }
+    } catch (error) {
+      console.error('Streamtape error:', error);
+      try {
+        await ctx.reply(
+          'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/Savior_128).',
+          { parse_mode: 'Markdown' }
+        );
+      } catch (replyError) {
+        console.error('Reply error:', replyError);
+      }
     }
   }
-}
 
 // FFmpeg
 async function runFffmpegCommand(command) {
@@ -490,7 +488,6 @@ async function progressForTelegraf(current, total, udType, ctx, start) {
     const timeToCompletion = speed > 0 ? Math.round(((total - current) / speed) * 1000) : 0;
     const estimatedTotalTime = elapsedTime + timeToCompletion;
 
-    // فرمت جدید PROGRESS
     const progressMessage = `
 Percentage : ${percentage.toFixed(2)}%
 Done: ${humanbytes(current)}
@@ -622,7 +619,7 @@ bot.start(async (ctx) => {
         [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
         [
           Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-          Markup.button.url('Bots Channel', 'https://t.me/Savior_128'),
+          Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
         ],
         [Markup.button.callback('Open Settings', 'openSettings')],
         [Markup.button.callback('Close', 'closeMeh')],
@@ -668,41 +665,39 @@ bot.on('video', async (ctx) => {
   }
 
   QueueDB[ctx.from.id].push(ctx.message.message_id);
-  console.log('Updated QueueDB:', QueueDB[ctx.from.id]);
+  console.log('Updated QueueDB:', JSON.stringify(QueueDB[ctx.from.id]));
   const messageText = QueueDB[ctx.from.id].length === maxVideos ? 'Press Merge Now!' : 'Send next video or press Merge Now!';
-  const markup = await makeButtons(ctx, ctx.message, QueueDB);
-  console.log('Markup generated:', markup);
 
-  if (!markup || markup.length === 0) {
-    console.error('Markup is empty or invalid, using default buttons');
-    markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
-    markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
-  }
+  // تست ثابت inlineKeyboard
+  const testMarkup = [
+    [Markup.button.callback('Test Button 1', 'test_1')],
+    [Markup.button.callback('Test Button 2', 'test_2')],
+  ];
 
   const editable = await ctx.reply('Adding video to queue...', { reply_to_message_id: ctx.message.message_id });
   await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
   try {
     await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Video added to queue!');
   } catch (editError) {
-    console.error('Edit message error:', editError);
+    console.error('Edit message error:', editError.stack);
     await ctx.reply('Video added to queue!');
   }
 
   if (ReplyDB[ctx.from.id]) {
     await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]).catch((err) => {
-      console.error('Delete previous reply error:', err);
+      console.error('Delete previous reply error:', err.stack);
     });
   }
 
   try {
     const reply = await ctx.reply(messageText, {
-      reply_markup: Markup.inlineKeyboard(markup),
+      reply_markup: Markup.inlineKeyboard(testMarkup),
       reply_to_message_id: ctx.message.message_id,
     });
     ReplyDB[ctx.from.id] = reply.message_id;
     console.log('Reply sent successfully with message_id:', reply.message_id);
   } catch (error) {
-    console.error('Error sending reply with markup:', error);
+    console.error('Error sending reply with markup:', error.stack);
     const reply = await ctx.reply(messageText, {
       reply_markup: Markup.inlineKeyboard([
         [Markup.button.callback('Merge Now', 'mergeNow')],
@@ -1025,7 +1020,7 @@ bot.action('refreshFsub', async (ctx) => {
           [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
           [
             Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-            Markup.button.url('Bots Channel', 'https://t.me/Savior_128'),
+            Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
           ],
           [Markup.button.callback('Open Settings', 'openSettings')],
           [Markup.button.callback('Close', 'closeMeh')],
