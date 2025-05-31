@@ -34,7 +34,7 @@ if (!mongoUri) {
   throw new Error('MONGODB_URI is not defined');
 }
 const broadcastAsCopy = process.env.BROADCAST_AS_COPY === 'true';
-const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @Savior_128';
+const captionTemplate = "Video Merged by @{botUsername}\n\nMade by @Savior_128"; // کپشن جدید
 
 // MongoDB اتصال
 let db;
@@ -480,16 +480,19 @@ async function progressForTelegraf(current, total, udType, ctx, start) {
     const timeToCompletion = speed > 0 ? Math.round(((total - current) / speed) * 1000) : 0;
     const estimatedTotalTime = elapsedTime + timeToCompletion;
 
+    // فرمت جدید PROGRESS
+    const progressMessage = `
+Percentage : ${percentage.toFixed(2)}%
+Done: ${humanbytes(current)}
+Total: ${humanbytes(total)}
+Speed: ${humanbytes(speed)}/s
+ETA: ${timeFormatter(estimatedTotalTime) || '0 s'}
+    `;
+
     const progressBar = '[' +
       '●'.repeat(Math.floor(percentage / 5)) +
       '○'.repeat(20 - Math.floor(percentage / 5)) +
       ']';
-
-    const progressMessage = `Percentage: ${percentage.toFixed(2)}%\n` +
-      `Done: ${humanbytes(current)}\n` +
-      `Total: ${humanbytes(total)}\n` +
-      `Speed: ${humanbytes(speed)}/s\n` +
-      `ETA: ${timeFormatter(estimatedTotalTime) || '0 s'}`;
 
     try {
       await ctx.editMessageText(
@@ -545,8 +548,7 @@ async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fi
     const isUploadAsDoc = await getUploadAsDoc(ctx.from.id);
     const botUsername = (await ctx.telegram.getMe()).username;
     const fileName = path.basename(filePath);
-    const caption = captionTemplate.replace('{botUsername}', `@${botUsername}`) +
-      `\n\n**File Name:** \`${fileName}\`\n**Duration:** \`${formatTimespan(duration)}\`\n**File Size:** \`${humanbytes(fileSize)}\``;
+    const caption = captionTemplate.replace('{botUsername}', `@${botUsername}`);
     let sent;
 
     if (!isUploadAsDoc) {
@@ -610,7 +612,7 @@ bot.start(async (ctx) => {
         [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
         [
           Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-          Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
+          Markup.button.url('Bots Channel', 'https://t.me/Savior_128'),
         ],
         [Markup.button.callback('Open Settings', 'openSettings')],
         [Markup.button.callback('Close', 'closeMeh')],
@@ -706,7 +708,7 @@ bot.on('photo', async (ctx) => {
 // دستور /settings
 bot.command('settings', async (ctx) => {
   await addUserToDatabase(ctx);
-  if ((await forceSub(ctx)) !== 200) return; // اصلاح خطای نحوی: نقل‌قول اضافی حذف شد
+  if ((await forceSub(ctx)) !== 200) return;
   const editable = await ctx.reply('Opening settings...');
   await openSettings(ctx, editable);
 });
@@ -719,9 +721,7 @@ bot.command('broadcast', async (ctx) => {
   const out = await ctx.reply('Broadcast Started! You will reply with log file when all the users are notified.');
   const startTime = Date.now();
   const totalUsers = await totalUsersCount();
-  let done = 0,
-    failed = 0,
-    success = 0;
+  let done = 0, failed = 0, success = 0;
   broadcastIds[broadcastId] = { total: totalUsers, current: done, failed, success };
 
   try {
@@ -981,7 +981,7 @@ bot.action('refreshFsub', async (ctx) => {
           [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
           [
             Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-            Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
+            Markup.button.url('Bots Channel', 'https://t.me/Savior_128'),
           ],
           [Markup.button.callback('Open Settings', 'openSettings')],
           [Markup.button.callback('Close', 'closeMeh')],
@@ -1235,11 +1235,30 @@ bot.action('closeMeh', async (ctx) => {
   try {
     await connectMongoDB();
     const webhookUrl = `https://${process.env.VERCEL_URL}/api`;
+    console.log('VERCEL_URL:', process.env.VERCEL_URL);
+    if (!process.env.VERCEL_URL) {
+      throw new Error('VERCEL_URL is not defined in environment variables');
+    }
+    console.log('Setting webhook with URL:', webhookUrl);
     await bot.telegram.setWebhook(webhookUrl);
-    console.log('Webhook set to:', webhookUrl);
+    console.log('Webhook set successfully to:', webhookUrl);
+    const webhookInfo = await bot.telegram.getWebhookInfo();
+    console.log('Webhook info:', webhookInfo);
+    if (botOwner) {
+      await bot.telegram.sendMessage(
+        botOwner,
+        `Bot started successfully!\nWebhook set to: ${webhookUrl}\nWebhook Info: ${JSON.stringify(webhookInfo, null, 2)}`
+      ).catch((err) => console.error('Failed to notify owner:', err));
+    }
     console.log('Bot started');
   } catch (error) {
     console.error('Startup error:', error);
+    if (botOwner) {
+      await bot.telegram.sendMessage(
+        botOwner,
+        `Failed to start bot!\nError: ${error.message}`
+      ).catch((err) => console.error('Failed to notify owner:', err));
+    }
     process.exit(1);
   }
 })();
@@ -1247,6 +1266,15 @@ bot.action('closeMeh', async (ctx) => {
 // مدیریت Webhook برای Vercel
 module.exports = async (req, res) => {
   try {
+    console.log('Received Webhook request body:', req.body);
+    if (!req.body || typeof req.body !== 'object') {
+      console.error('Invalid request body: Body is empty or not an object');
+      return res.status(400).send('Invalid request body');
+    }
+    if (!req.body.update_id) {
+      console.error('Invalid Telegram update: Missing update_id', req.body);
+      return res.status(400).send('Invalid Telegram update');
+    }
     await bot.handleUpdate(req.body);
     res.status(200).send('OK');
   } catch (error) {
