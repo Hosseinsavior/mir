@@ -10,7 +10,10 @@
     {
       "src": "/api",
       "dest": "/api/index.js",
-      "methods": ["POST"]
+      "methods": ["POST"],
+      "headers": {
+        "x-vercel-timeout": "60"
+      }
     }
   ],
   "env": {
@@ -26,5 +29,6 @@
     "MONGODB_URI": "",
     "BROADCAST_AS_COPY": "true",
     "CAPTION_TEMPLATE": "Video Merged by @{botUsername}\\n\\nMade by @Savior_128"
-  }
+  },
+  "installCommand": "npm install && apt-get update && apt-get install -y ffmpeg"
 }
