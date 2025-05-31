@@ -12,7 +12,7 @@
       "dest": "/api/index.js",
       "methods": ["POST"],
       "headers": {
-        "x-vercel-timeout": "120" // افزایش به 120 ثانیه برای عملیات طولانی‌تر
+        "x-vercel-timeout": "120"
       }
     }
   ],
@@ -28,7 +28,10 @@
     "STREAMTAPE_API_PASS": "",
     "MONGODB_URI": "",
     "BROADCAST_AS_COPY": "true",
-    "CAPTION_TEMPLATE": "Video Merged by @{botUsername}\\n\\nMade by @Savior_128"
+    "CAPTION_TEMPLATE": "Video Merged by @{botUsername}\\n\\nMade by @Savior_128",
+    "GOOGLE_CLOUD_PROJECT_ID": "", // اضافه کن
+    "GOOGLE_CLOUD_BUCKET_NAME": "", // اضافه کن
+    "GOOGLE_CLOUD_KEY_FILE": "" // مسیر فایل JSON کلید سرویس، به صورت Base64 یا مستقیم
   },
   "installCommand": "npm install && apt-get update && apt-get install -y ffmpeg"
 }
