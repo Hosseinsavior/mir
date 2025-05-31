@@ -31,12 +31,27 @@ const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUse
 let db;
 async function connectMongoDB() {
   try {
-    const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
+    console.log('MONGODB_URI:', process.env.MONGODB_URI); // لاگ برای دیباگ
+    const client = await MongoClient.connect(process.env.MONGODB_URI, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
     console.log('Connected to MongoDB');
+    if (botOwner) {
+      const bot = new Telegraf(botToken);
+      bot.telegram.sendMessage(botOwner, 'Successfully connected to MongoDB!')
+        .catch((err) => console.error('Failed to notify owner:', err));
+    }
   } catch (err) {
     console.error('MongoDB connection error:', err);
+    if (botOwner) {
+      const bot = new Telegraf(botToken);
+      bot.telegram.sendMessage(botOwner, `MongoDB connection failed: ${err.message}`)
+        .catch((e) => console.error('Failed to notify owner:', e));
+    }
     throw err;
+  }
+}
+  }
+};
   }
 }
 
