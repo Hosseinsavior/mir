@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { Telegraf, Markup } = require('telegraf');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
