@@ -14,10 +14,11 @@
     "sharp": "^0.33.5",
     "systeminformation": "^5.23.5",
     "ffmpeg-static": "^5.2.0",
-    "form-data": "^4.0.0"
+    "form-data": "^4.0.0",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {},
-  "author": "Based on @Savior_128's Python bot",
+  "author": "Based on @AbirHasan2005's Python bot",
   "license": "MIT",
   "engines": {
     "node": ">=18.x"
