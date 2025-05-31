@@ -12,7 +12,7 @@
       "dest": "/api/index.js",
       "methods": ["POST"],
       "headers": {
-        "x-vercel-timeout": "60"
+        "x-vercel-timeout": "120" // افزایش به 120 ثانیه برای عملیات طولانی‌تر
       }
     }
   ],
