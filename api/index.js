@@ -284,32 +284,29 @@ async function totalUsersCount() {
 async function makeButtons(ctx, message, dbQueue) {
   const markup = [];
   try {
-    console.log('makeButtons called for user:', message.from.id);
-    console.log('QueueDB for user:', dbQueue[message.from.id]);
+    console.log('DEBUG: makeButtons called for user:', message.from.id);
+    console.log('DEBUG: QueueDB for user:', JSON.stringify(dbQueue[message.from.id]));
 
     if (!dbQueue[message.from.id] || dbQueue[message.from.id].length === 0) {
-      console.log('Queue is empty, adding default buttons');
+      console.log('DEBUG: Queue is empty, adding default buttons');
       markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
       markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
       return markup;
     }
 
-    // ساخت دکمه‌ها بر اساس message_idها توی QueueDB
     for (const messageId of dbQueue[message.from.id]) {
-      console.log('Processing message_id:', messageId);
-      // استفاده از message_id به‌عنوان نام پیش‌فرض
+      console.log('DEBUG: Processing message_id:', messageId);
       markup.push([Markup.button.callback(`Video_${messageId}`, `showFileName_${messageId}`)]);
     }
 
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
     markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
   } catch (error) {
-    console.error('Make buttons error:', error);
-    // دکمه‌های پیش‌فرض در صورت خطا
+    console.error('DEBUG: Make buttons error:', error.stack);
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
     markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
   }
-  console.log('Final markup:', markup);
+  console.log('DEBUG: Final markup structure:', JSON.stringify(markup));
   return markup;
 }
 // Streamtape
