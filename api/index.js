@@ -1,5 +1,4 @@
-
-require('dotenv').config();
+require('dotenv').config(); // فعلاً کامنت شده چون ترمینال نداری. اگه بعداً نصب کردی، فعال کن
 
 const { Telegraf, Markup } = require('telegraf');
 const { MongoClient } = require('mongodb');
@@ -45,19 +44,20 @@ const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUse
 let db;
 async function connectMongoDB() {
   try {
-    const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
+    console.log('MONGODB_URI:', process.env.MONGODB_URI); // لاگ برای دیباگ
+    const client = await MongoClient.connect(process.env.MONGODB_URI, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
     console.log('Connected to MongoDB');
     if (botOwner) {
-      const bot = new Telegraf(botToken);
-      bot.telegram.sendMessage(botOwner, 'Successfully connected to MongoDB!')
+      const botInstance = new Telegraf(botToken);
+      await botInstance.telegram.sendMessage(botOwner, 'Successfully connected to MongoDB!')
         .catch((err) => console.error('Failed to notify owner:', err));
     }
   } catch (err) {
     console.error('MongoDB connection error:', err);
     if (botOwner) {
-      const bot = new Telegraf(botToken);
-      bot.telegram.sendMessage(botOwner, `MongoDB connection failed: ${err.message}`)
+      const botInstance = new Telegraf(botToken);
+      await botInstance.telegram.sendMessage(botOwner, `MongoDB connection failed: ${err.message}`)
         .catch((e) => console.error('Failed to notify owner:', e));
     }
     throw err;
@@ -269,7 +269,7 @@ async function makeButtons(ctx, message, dbQueue) {
     for (const msg of messages) {
       const media = msg.video || msg.document;
       if (media) {
-        markup.push([Markup.button.callback(media.file_name, `showFileName_${msg.message_id}`)]);
+        markup.push([Markup.button.callback(media.file_name || 'unnamed_file', `showFileName_${msg.message_id}`)]);
       }
     }
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
@@ -339,7 +339,7 @@ async function runFffmpegCommand(command) {
   try {
     const { stdout, stderr } = await execPromise(command.join(' '));
     console.log('FFmpeg stdout:', stdout);
-    console.log('FFmpeg stderr:', stderr);
+    if (stderr) console.log('FFmpeg stderr:', stderr);
     return { stdout, stderr };
   } catch (error) {
     console.error('FFmpeg error:', error);
@@ -560,12 +560,14 @@ async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fi
     }
 
     await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
-    const forwarded = await sent.copy(logChannel);
-    await ctx.telegram.sendMessage(
-      logChannel,
-      `**User:** [${ctx.from.first_name}](tg://user?id=${ctx.from.id})\n**Username:** @${ctx.from.username || 'None'}\n**UserID:** \`${ctx.from.id}\``,
-      { reply_to_message_id: forwarded.message_id, parse_mode: 'Markdown', disable_web_page_preview: true }
-    );
+    if (logChannel) {
+      const forwarded = await sent.copy(logChannel);
+      await ctx.telegram.sendMessage(
+        logChannel,
+        `**User:** [${ctx.from.first_name}](tg://user?id=${ctx.from.id})\n**Username:** @${ctx.from.username || 'None'}\n**UserID:** \`${ctx.from.id}\``,
+        { reply_to_message_id: forwarded.message_id, parse_mode: 'Markdown', disable_web_page_preview: true }
+      );
+    }
 
     await ctx.editMessageText('Video uploaded successfully!');
   } catch (error) {
@@ -685,7 +687,7 @@ bot.on('photo', async (ctx) => {
 // دستور /settings
 bot.command('settings', async (ctx) => {
   await addUserToDatabase(ctx);
-  if ((await forceSub(ctx)) !== 200') return;
+  if ((await forceSub(ctx)) !== 200) return; // اصلاح خطای نحوی: نقل‌قول اضافی حذف شد
   const editable = await ctx.reply('Opening settings...');
   await openSettings(ctx, editable);
 });
@@ -830,7 +832,7 @@ bot.action('mergeNow', async (ctx) => {
       const message = await ctx.telegram.getMessages(ctx.chat.id, messageId);
       const video = message[0].video;
       const filePath = path.join(userDir, `${messageId}.${FormatDB[userId]}`);
-      await ctx.editMessageText(`Downloading ${video.file_name}...`);
+      await ctx.editMessageText(`Downloading ${video.file_name || 'unnamed_file'}...`);
       const startTime = Date.now() / 1000;
       await downloadFile(ctx, video.file_id, filePath, (current, total) =>
         progressForTelegraf(current, total, 'Downloading', ctx, startTime)
@@ -937,7 +939,7 @@ bot.action(/showFileName_(\d+)/, async (ctx) => {
     const message = await ctx.telegram.getMessages(ctx.chat.id, messageId);
     const media = message[0].video || message[0].document;
     if (media) {
-      await ctx.answerCbQuery(`File: ${media.file_name}`, { show_alert: true });
+      await ctx.answerCbQuery(`File: ${media.file_name || 'unnamed_file'}`, { show_alert: true });
     } else {
       await ctx.answerCbQuery('File not found!', { show_alert: true });
     }
@@ -1213,7 +1215,9 @@ bot.action('closeMeh', async (ctx) => {
 (async () => {
   try {
     await connectMongoDB();
-    await bot.launch();
+    const webhookUrl = `https://${process.env.VERCEL_URL}/api`;
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log('Webhook set to:', webhookUrl);
     console.log('Bot started');
   } catch (error) {
     console.error('Startup error:', error);
@@ -1221,7 +1225,7 @@ bot.action('closeMeh', async (ctx) => {
   }
 })();
 
-// مدیریت Webhook
+// مدیریت Webhook برای Vercel
 module.exports = async (req, res) => {
   try {
     await bot.handleUpdate(req.body);
