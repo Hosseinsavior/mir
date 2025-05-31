@@ -297,7 +297,7 @@ async function makeButtons(ctx, message, dbQueue) {
     // ساخت دکمه‌ها بر اساس message_idها توی QueueDB
     for (const messageId of dbQueue[message.from.id]) {
       console.log('Processing message_id:', messageId);
-      // اینجا فرض می‌کنیم فایل‌ها قبلاً بررسی شدن، پس یه نام پیش‌فرض می‌دیم
+      // استفاده از message_id به‌عنوان نام پیش‌فرض
       markup.push([Markup.button.callback(`Video_${messageId}`, `showFileName_${messageId}`)]);
     }
 
