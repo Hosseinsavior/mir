@@ -50,10 +50,10 @@ async function connectMongoDB() {
     throw err;
   }
 }
-  }
+  
 };
-  }
-}
+  
+
 
 // ربات
 const bot = new Telegraf(botToken);
