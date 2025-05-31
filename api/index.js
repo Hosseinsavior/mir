@@ -1,16 +1,16 @@
-require('dotenv').config(); // فعلاً کامنت شده چون ترمینال نداری. اگه بعداً نصب کردی، فعال کن
+require('dotenv').config();
 
 const { Telegraf, Markup } = require('telegraf');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const sharp = require('sharp');
 const si = require('systeminformation');
-const { spawn } = require('child_process'); // برای اجرای FFmpeg
+const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const FormData = require('form-data');
-const ffmpegPath = require('ffmpeg-static');
+
 // متغیرهای محیطی
 const botToken = '5115356918:AAFH3T-1f2x4ZdikRQnNoOXXgonLUlwryAQ';
 const botOwner = process.env.BOT_OWNER || '5059280908';
@@ -19,8 +19,8 @@ const logChannel = process.env.LOG_CHANNEL || '';
 const downPath = process.env.DOWN_PATH || './downloads';
 const timeGap = parseInt(process.env.TIME_GAP) || 5;
 const maxVideos = parseInt(process.env.MAX_VIDEOS) || 5;
-const streamtapeUsername = 'e570d9deef272a462305';
-const streamtapePass = '3w8wLp7ZPludYbW';
+const streamtapeUsername = process.env.STREAMTAPE_API_USERNAME || 'e570d9deef272a462305';
+const streamtapePass = process.env.STREAMTAPE_API_PASS || '3w8wLp7ZPludYbW';
 const mongoUri = 'mongodb+srv://saviorsann:TDzeYsGIJwvVkRy4@cluster0.9otjsyr.mongodb.net/video_merge_bot?retryWrites=true&w=majority';
 if (!mongoUri) {
   console.error('MONGODB_URI is not defined');
@@ -77,7 +77,7 @@ async function ensureDir(userId) {
   return dir;
 }
 
-// دکمه‌های اینلاین ساده (فقط برای تنظیمات)
+// دکمه‌های اینلاین ساده
 async function createReplyMarkup() {
   try {
     return Markup.inlineKeyboard([
@@ -353,6 +353,7 @@ async function mergeVideo(inputFile, userId, ctx, format) {
       process = spawn('ffmpeg', command.slice(1), {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      console.log(`DEBUG: FFmpeg process spawned, PID: ${process.pid}`);
     } catch (error) {
       console.error('DEBUG: FFmpeg spawn error:', error.stack);
       ctx.reply('Unable to execute FFmpeg command! Please contact support.');
@@ -379,7 +380,16 @@ async function mergeVideo(inputFile, userId, ctx, format) {
       resolve(null);
     });
 
+    const mergeTimeout = 120000; // 120 ثانیه
+    const timeoutId = setTimeout(() => {
+      process.kill('SIGKILL');
+      console.error('DEBUG: FFmpeg process timed out');
+      ctx.reply('FFmpeg process timed out. Please try again with smaller videos.');
+      resolve(null);
+    }, mergeTimeout);
+
     process.on('close', async (code) => {
+      clearTimeout(timeoutId);
       console.log(`DEBUG: FFmpeg process exited with code ${code}`);
       if (code === 0 && (await fs.access(outputVid).then(() => true).catch(() => false))) {
         console.log(`DEBUG: Merged video created at ${outputVid}`);
@@ -509,6 +519,123 @@ async function generateScreenshots(videoFile, outputDirectory, noOfPhotos, durat
     currentTtl += ttlStep;
   }
   return images;
+}
+
+async function generateThumbnail(filePath, userId, duration) {
+  try {
+    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
+    const ttl = Math.floor(Math.random() * duration);
+    const command = [
+      'ffmpeg',
+      '-i',
+      filePath,
+      '-ss',
+      ttl.toString(),
+      '-vframes',
+      '1',
+      thumbPath,
+    ];
+
+    console.log(`DEBUG: Running FFmpeg command for thumbnail: ${command.join(' ')}`);
+
+    return new Promise((resolve) => {
+      const process = spawn('ffmpeg', command.slice(1), {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+        console.log('DEBUG: FFmpeg stdout (thumbnail):', data.toString());
+      });
+
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+        console.log('DEBUG: FFmpeg stderr (thumbnail):', data.toString());
+      });
+
+      process.on('error', (error) => {
+        console.error('DEBUG: FFmpeg process error (thumbnail):', error.stack);
+        resolve(null);
+      });
+
+      process.on('close', async (code) => {
+        console.log(`DEBUG: FFmpeg process (thumbnail) exited with code ${code}`);
+        if (code === 0 && (await fs.access(thumbPath).then(() => true).catch(() => false))) {
+          await sharp(thumbPath).jpeg().toFile(thumbPath);
+          resolve(thumbPath);
+        } else {
+          console.log('DEBUG: Thumbnail file does not exist.');
+          resolve(null);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Thumbnail error:', error);
+    return null;
+  }
+}
+
+// استخراج متادیتا ویدیو
+async function getVideoMetadata(filePath) {
+  const command = [
+    'ffprobe',
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration:stream=width,height',
+    '-of',
+    'json',
+    filePath,
+  ];
+
+  console.log(`DEBUG: Running ffprobe command: ${command.join(' ')}`);
+
+  return new Promise((resolve) => {
+    const process = spawn('ffprobe', command.slice(1), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('DEBUG: ffprobe stdout:', data.toString());
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.log('DEBUG: ffprobe stderr:', data.toString());
+    });
+
+    process.on('error', (error) => {
+      console.error('DEBUG: ffprobe process error:', error.stack);
+      resolve({ duration: 1, width: 100, height: 100 });
+    });
+
+    process.on('close', (code) => {
+      console.log(`DEBUG: ffprobe process exited with code ${code}`);
+      if (code === 0) {
+        try {
+          const data = JSON.parse(stdout);
+          resolve({
+            duration: Math.round(parseFloat(data.format.duration)),
+            width: data.streams[0].width || 100,
+            height: data.streams[0].height || 100,
+          });
+        } catch (error) {
+          console.error('DEBUG: ffprobe JSON parse error:', error.stack);
+          resolve({ duration: 1, width: 100, height: 100 });
+        }
+      } else {
+        console.log('DEBUG: ffprobe failed.');
+        resolve({ duration: 1, width: 100, height: 100 });
+      }
+    });
+  });
 }
 
 // آپلود ویدیو
@@ -648,80 +775,6 @@ function formatTimespan(seconds) {
   return `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${secs}s`;
 }
 
-// استخراج متادیتا ویدیو
-async function getVideoMetadata(filePath) {
-  try {
-    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration:stream=width,height -of json ${filePath}`);
-    const data = JSON.parse(stdout);
-    return {
-      duration: Math.round(parseFloat(data.format.duration)),
-      width: data.streams[0].width || 100,
-      height: data.streams[0].height || 100,
-    };
-  } catch (error) {
-    console.error('Metadata error:', error);
-    return { duration: 1, width: 100, height: 100 };
-  }
-}
-
-// تولید تامبنیل
-async function generateThumbnail(filePath, userId, duration) {
-  try {
-    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
-    const ttl = Math.floor(Math.random() * duration);
-    const command = [
-      'ffmpeg',
-      '-i',
-      filePath,
-      '-ss',
-      ttl.toString(),
-      '-vframes',
-      '1',
-      thumbPath,
-    ];
-
-    console.log(`DEBUG: Running FFmpeg command for thumbnail: ${command.join(' ')}`);
-
-    return new Promise((resolve) => {
-      const process = spawn('ffmpeg', command.slice(1), {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      process.stdout.on('data', (data) => {
-        stdout += data.toString();
-        console.log('DEBUG: FFmpeg stdout (thumbnail):', data.toString());
-      });
-
-      process.stderr.on('data', (data) => {
-        stderr += data.toString();
-        console.log('DEBUG: FFmpeg stderr (thumbnail):', data.toString());
-      });
-
-      process.on('error', (error) => {
-        console.error('DEBUG: FFmpeg process error (thumbnail):', error.stack);
-        resolve(null);
-      });
-
-      process.on('close', async (code) => {
-        console.log(`DEBUG: FFmpeg process (thumbnail) exited with code ${code}`);
-        if (code === 0 && (await fs.access(thumbPath).then(() => true).catch(() => false))) {
-          await sharp(thumbPath).jpeg().toFile(thumbPath);
-          resolve(thumbPath);
-        } else {
-          console.log('DEBUG: Thumbnail file does not exist.');
-          resolve(null);
-        }
-      });
-    });
-  } catch (error) {
-    console.error('Thumbnail error:', error);
-    return null;
-  }
-}
-
 // دانلود فایل
 async function downloadFile(ctx, fileId, filePath) {
   try {
@@ -805,7 +858,17 @@ bot.command('merge', async (ctx) => {
     return ctx.reply('Need at least 2 videos to merge! Use /add to add more.');
   }
 
-  await ctx.reply('Preparing to merge videos...');
+  console.log(`DEBUG: Merge command started for user ${userId}`);
+
+  let preparingMessage;
+  try {
+    preparingMessage = await ctx.reply('Preparing to merge videos...');
+    console.log(`DEBUG: Preparing message sent, message_id: ${preparingMessage.message_id}`);
+  } catch (error) {
+    console.error(`DEBUG: Error sending preparing message:`, error.stack);
+    return ctx.reply('Error starting merge process. Please try again.');
+  }
+
   const userDir = await ensureDir(userId);
   const inputFile = path.join(userDir, 'input.txt');
   const videoPaths = [];
@@ -821,28 +884,58 @@ bot.command('merge', async (ctx) => {
       const filePath = path.join(userDir, `${messageId}.${FormatDB[userId]}`);
       console.log(`DEBUG: Saving to file path: ${filePath}`);
 
-      await ctx.reply(`Downloading ${messageId}...`);
-      const response = await axios({
-        method: 'get',
-        url: fileLink.href,
-        responseType: 'stream',
-        onDownloadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            console.log(`DEBUG: Download progress for ${messageId}: ${progressEvent.loaded}/${progressEvent.total}`);
-          }
-        },
-      });
-      const writer = response.data.pipe(require('fs').createWriteStream(filePath));
-      await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
-      console.log(`DEBUG: Download completed for ${messageId}`);
-      videoPaths.push(`file '${filePath}'`);
+      let downloadingMessage;
+      try {
+        downloadingMessage = await ctx.reply(`Downloading ${messageId}...`);
+        console.log(`DEBUG: Downloading message sent, message_id: ${downloadingMessage.message_id}`);
+      } catch (error) {
+        console.error(`DEBUG: Error sending downloading message:`, error.stack);
+      }
+
+      // اضافه کردن Timeout برای دانلود
+      const downloadTimeout = 60000; // 60 ثانیه
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), downloadTimeout);
+
+      try {
+        const response = await axios({
+          method: 'get',
+          url: fileLink.href,
+          responseType: 'stream',
+          signal: controller.signal,
+          onDownloadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              console.log(`DEBUG: Download progress for ${messageId}: ${progressEvent.loaded}/${progressEvent.total}`);
+            }
+          },
+        });
+
+        clearTimeout(timeoutId);
+
+        const writer = response.data.pipe(require('fs').createWriteStream(filePath));
+        await new Promise((resolve, reject) => {
+          writer.on('finish', () => {
+            console.log(`DEBUG: Download completed for ${messageId}`);
+            resolve();
+          });
+          writer.on('error', (err) => {
+            console.error(`DEBUG: Download stream error for ${messageId}:`, err.stack);
+            reject(err);
+          });
+        });
+        videoPaths.push(`file '${filePath}'`);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.error(`DEBUG: Download timeout for ${messageId}`);
+          throw new Error(`Download timeout for file ${messageId}`);
+        }
+        throw error;
+      }
     } catch (error) {
       console.error(`DEBUG: Download error for ${messageId}:`, error.stack);
       QueueDB[userId] = QueueDB[userId].filter((id) => id !== messageId);
-      await ctx.reply(`File ${messageId} skipped due to error!`);
+      await ctx.reply(`File ${messageId} skipped due to error: ${error.message}`);
     }
   }
 
@@ -855,9 +948,19 @@ bot.command('merge', async (ctx) => {
     return;
   }
 
-  await fs.writeFile(inputFile, videoPaths.join('\n'));
-  console.log(`DEBUG: Input file created at ${inputFile} with content: ${videoPaths.join('\n')}`);
+  try {
+    await fs.writeFile(inputFile, videoPaths.join('\n'));
+    console.log(`DEBUG: Input file created at ${inputFile} with content: ${videoPaths.join('\n')}`);
+  } catch (error) {
+    console.error(`DEBUG: Error writing input file:`, error.stack);
+    await ctx.reply('Error preparing videos for merge.');
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
+  }
 
+  console.log(`DEBUG: Starting FFmpeg merge process...`);
   const mergedVidPath = await mergeVideo(inputFile, userId, ctx, FormatDB[userId]);
   if (!mergedVidPath) {
     console.log(`DEBUG: Merge failed for user ${userId}`);
@@ -868,7 +971,18 @@ bot.command('merge', async (ctx) => {
   }
 
   console.log(`DEBUG: Merge successful, output path: ${mergedVidPath}`);
-  const fileSize = (await fs.stat(mergedVidPath)).size;
+  let fileSize;
+  try {
+    fileSize = (await fs.stat(mergedVidPath)).size;
+  } catch (error) {
+    console.error(`DEBUG: Error getting file size:`, error.stack);
+    await ctx.reply('Error processing merged video.');
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
+  }
+
   if (fileSize > 2097152000) {
     await ctx.reply(`File too large (${humanbytes(fileSize)}). Uploading to Streamtape...`);
     await uploadToStreamtape(mergedVidPath, ctx, fileSize);
@@ -879,42 +993,78 @@ bot.command('merge', async (ctx) => {
   }
 
   await ctx.reply('Extracting video data...');
-  const { duration, width, height } = await getVideoMetadata(mergedVidPath);
+  let metadata;
+  try {
+    metadata = await getVideoMetadata(mergedVidPath);
+  } catch (error) {
+    console.error(`DEBUG: Error extracting metadata:`, error.stack);
+    await ctx.reply('Error extracting video metadata.');
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
+  }
+  const { duration, width, height } = metadata;
+
   let thumbnail = await getThumbnail(userId);
   if (thumbnail) {
     const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
-    await downloadFile(ctx, thumbnail, thumbPath);
-    await sharp(thumbPath).resize(width, height).jpeg().toFile(thumbPath);
-    thumbnail = thumbPath;
-  } else {
-    thumbnail = await generateThumbnail(mergedVidPath, userId, duration);
+    try {
+      await downloadFile(ctx, thumbnail, thumbPath);
+      await sharp(thumbPath).resize(width, height).jpeg().toFile(thumbPath);
+      thumbnail = thumbPath;
+    } catch (error) {
+      console.error(`DEBUG: Error processing thumbnail:`, error.stack);
+      thumbnail = null;
+    }
+  }
+  if (!thumbnail) {
+    try {
+      thumbnail = await generateThumbnail(mergedVidPath, userId, duration);
+    } catch (error) {
+      console.error(`DEBUG: Error generating thumbnail:`, error.stack);
+    }
   }
 
   const shouldGenerateSs = await getGenerateSs(userId);
   const shouldGenerateSample = await getGenerateSampleVideo(userId);
   if (shouldGenerateSs) {
-    const screenshots = await generateScreenshots(mergedVidPath, path.join(downPath, userId.toString()), 4, duration);
-    if (screenshots.length > 0) {
-      await ctx.replyWithMediaGroup(
-        screenshots.map((s) => ({ type: 'photo', media: { source: s } }))
-      );
+    try {
+      const screenshots = await generateScreenshots(mergedVidPath, path.join(downPath, userId.toString()), 4, duration);
+      if (screenshots.length > 0) {
+        await ctx.replyWithMediaGroup(
+          screenshots.map((s) => ({ type: 'photo', media: { source: s } }))
+        );
+      }
+    } catch (error) {
+      console.error(`DEBUG: Error generating screenshots:`, error.stack);
     }
   }
   if (shouldGenerateSample) {
-    const samplePath = await cutSmallVideo(
-      mergedVidPath,
-      path.join(downPath, userId.toString()),
-      0,
-      Math.min(30, duration),
-      FormatDB[userId]
-    );
-    if (samplePath) {
-      await ctx.replyWithVideo({ source: samplePath }, { caption: 'Sample Video' });
+    try {
+      const samplePath = await cutSmallVideo(
+        mergedVidPath,
+        path.join(downPath, userId.toString()),
+        0,
+        Math.min(30, duration),
+        FormatDB[userId]
+      );
+      if (samplePath) {
+        await ctx.replyWithVideo({ source: samplePath }, { caption: 'Sample Video' });
+      }
+    } catch (error) {
+      console.error(`DEBUG: Error generating sample video:`, error.stack);
     }
   }
 
   const startTime = Date.now() / 1000;
-  await uploadVideo(ctx, mergedVidPath, width, height, duration, thumbnail, fileSize, startTime);
+  try {
+    await uploadVideo(ctx, mergedVidPath, width, height, duration, thumbnail, fileSize, startTime);
+  } catch (error) {
+    console.error(`DEBUG: Error uploading video:`, error.stack);
+    await ctx.reply('Error uploading the final video.');
+  }
+
   await deleteAll(path.join(downPath, userId.toString()));
   delete QueueDB[userId];
   delete FormatDB[userId];
