@@ -13,5 +13,18 @@
       "methods": ["POST"]
     }
   ],
-  
+  "env": {
+    "BOT_TOKEN": "",
+    "BOT_OWNER": "5059280908",
+    "UPDATES_CHANNEL": "",
+    "LOG_CHANNEL": "",
+    "DOWN_PATH": "./downloads",
+    "TIME_GAP": "5",
+    "MAX_VIDEOS": "5",
+    "STREAMTAPE_API_USERNAME": "",
+    "STREAMTAPE_API_PASS": "",
+    "MONGODB_URI": "",
+    "BROADCAST_AS_COPY": "true",
+    "CAPTION_TEMPLATE": "Video Merged by {botUsername}\\n\\nMade by @AbirHasan2005"
+  }
 }
