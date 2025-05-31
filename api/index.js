@@ -34,7 +34,7 @@ if (!mongoUri) {
   throw new Error('MONGODB_URI is not defined');
 }
 const broadcastAsCopy = process.env.BROADCAST_AS_COPY === 'true';
-const captionTemplate = "Video Merged by @{botUsername}\n\nMade by @Savior_128"; // کپشن جدید
+const captionTemplate = "Video Merged by @{botUsername}\n\nMade by @Savior_128";
 
 // MongoDB اتصال
 let db;
@@ -79,7 +79,7 @@ async function ensureDir(userId) {
   return dir;
 }
 
-// دکمه‌های اینلاین
+// دکمه‌های اینلاین ساده (فقط برای تنظیمات)
 async function createReplyMarkup() {
   try {
     return Markup.inlineKeyboard([
@@ -277,36 +277,6 @@ async function totalUsersCount() {
   return await db.collection('users').countDocuments({});
 }
 
-// دکمه‌های صف
-async function makeButtons(ctx, message, dbQueue) {
-  const markup = [];
-  try {
-    console.log('DEBUG: makeButtons called for user:', message.from.id);
-    console.log('DEBUG: QueueDB for user:', JSON.stringify(dbQueue[message.from.id]));
-
-    if (!dbQueue[message.from.id] || dbQueue[message.from.id].length === 0) {
-      console.log('DEBUG: Queue is empty, adding default buttons');
-      markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
-      markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
-      return markup;
-    }
-
-    for (const messageId of dbQueue[message.from.id]) {
-      console.log('DEBUG: Processing message_id:', messageId);
-      markup.push([Markup.button.callback(`Video_${messageId}`, `showFileName_${messageId}`)]);
-    }
-
-    markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
-    markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
-  } catch (error) {
-    console.error('DEBUG: Make buttons error:', error.stack);
-    markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
-    markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
-  }
-  console.log('DEBUG: Final markup structure:', JSON.stringify(markup));
-  return markup;
-}
-
 // Streamtape
 async function uploadToStreamtape(file, ctx, fileSize) {
   try {
@@ -347,19 +317,19 @@ async function uploadToStreamtape(file, ctx, fileSize) {
       }
     } else {
       throw new Error('Failed to authenticate with Streamtape API.');
-      }
-    } catch (error) {
-      console.error('Streamtape error:', error);
-      try {
-        await ctx.reply(
-          'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/Savior_128).',
-          { parse_mode: 'Markdown' }
-        );
-      } catch (replyError) {
-        console.error('Reply error:', replyError);
-      }
+    }
+  } catch (error) {
+    console.error('Streamtape error:', error);
+    try {
+      await ctx.reply(
+        'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/Savior_128).',
+        { parse_mode: 'Markdown' }
+      );
+    } catch (replyError) {
+      console.error('Reply error:', replyError);
     }
   }
+}
 
 // FFmpeg
 async function runFffmpegCommand(command) {
@@ -597,11 +567,11 @@ async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fi
       );
     }
 
-    await ctx.editMessageText('Video uploaded successfully!');
+    await ctx.reply('Video uploaded successfully!');
   } catch (error) {
     console.error('Upload error:', error);
     try {
-      await ctx.editMessageText(`Failed to upload video!\nError: ${error.message}`);
+      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
     } catch (editError) {
       await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
     }
@@ -613,22 +583,12 @@ bot.start(async (ctx) => {
   await addUserToDatabase(ctx);
   if ((await forceSub(ctx)) !== 200) return;
   await ctx.reply(
-    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
-    {
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
-        [
-          Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-          Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
-        ],
-        [Markup.button.callback('Open Settings', 'openSettings')],
-        [Markup.button.callback('Close', 'closeMeh')],
-      ]),
-    }
+    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nAvailable Commands:\n/start - Start the bot\n/add - Add a video to queue\n/merge - Merge videos\n/clear - Clear queue\n/settings - Open settings\n\nMade by @Savior_128`,
+    { reply_markup: await createReplyMarkup() }
   );
 });
 
-// مدیریت ویدیوها
+// مدیریت ویدیوها با دستور /add
 bot.on('video', async (ctx) => {
   await addUserToDatabase(ctx);
   if ((await forceSub(ctx)) !== 200) return;
@@ -647,11 +607,6 @@ bot.on('video', async (ctx) => {
     return ctx.reply(`Please send only ${FormatDB[ctx.from.id].toUpperCase()} videos!`, { reply_to_message_id: ctx.message.message_id });
   }
 
-  const inputFile = path.join(downPath, ctx.from.id.toString(), 'input.txt');
-  if (await fs.access(inputFile).then(() => true).catch(() => false)) {
-    return ctx.reply('A process is already running! Please wait.');
-  }
-
   const { isInGap, sleepTime } = await checkTimeGap(ctx.from.id);
   if (isInGap) {
     return ctx.reply(`No flooding! Wait ${sleepTime}s before sending another video.`, { reply_to_message_id: ctx.message.message_id });
@@ -659,55 +614,131 @@ bot.on('video', async (ctx) => {
 
   if (!QueueDB[ctx.from.id]) QueueDB[ctx.from.id] = [];
   if (QueueDB[ctx.from.id].length >= maxVideos) {
-    return ctx.reply(`Max ${maxVideos} videos allowed! Press Merge Now.`, {
-      reply_markup: Markup.inlineKeyboard([[Markup.button.callback('Merge Now', 'mergeNow')]]),
-    });
+    return ctx.reply(`Max ${maxVideos} videos allowed! Use /merge to proceed.`);
   }
 
   QueueDB[ctx.from.id].push(ctx.message.message_id);
   console.log('Updated QueueDB:', JSON.stringify(QueueDB[ctx.from.id]));
-  const messageText = QueueDB[ctx.from.id].length === maxVideos ? 'Press Merge Now!' : 'Send next video or press Merge Now!';
+  await ctx.reply(`Video added to queue! Total videos: ${QueueDB[ctx.from.id].length}\nUse /merge to combine or /clear to reset.`);
+});
 
-  // تست ثابت inlineKeyboard
-  const testMarkup = [
-    [Markup.button.callback('Test Button 1', 'test_1')],
-    [Markup.button.callback('Test Button 2', 'test_2')],
-  ];
-
-  const editable = await ctx.reply('Adding video to queue...', { reply_to_message_id: ctx.message.message_id });
-  await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
-  try {
-    await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Video added to queue!');
-  } catch (editError) {
-    console.error('Edit message error:', editError.stack);
-    await ctx.reply('Video added to queue!');
+// دستور /merge
+bot.command('merge', async (ctx) => {
+  const userId = ctx.from.id;
+  if (!QueueDB[userId] || QueueDB[userId].length < 2) {
+    return ctx.reply('Need at least 2 videos to merge! Use /add to add more.');
   }
 
-  if (ReplyDB[ctx.from.id]) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]).catch((err) => {
-      console.error('Delete previous reply error:', err.stack);
-    });
+  await ctx.reply('Preparing to merge videos...');
+  const userDir = await ensureDir(userId);
+  const inputFile = path.join(userDir, 'input.txt');
+  const videoPaths = [];
+
+  for (const messageId of QueueDB[userId].sort()) {
+    try {
+      const file = (await ctx.telegram.getFileLink(messageId)).href;
+      const filePath = path.join(userDir, `${messageId}.${FormatDB[userId]}`);
+      await ctx.reply(`Downloading ${messageId}...`);
+      const response = await axios({
+        method: 'get',
+        url: file,
+        responseType: 'stream',
+        onDownloadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            console.log(`Download progress: ${progressEvent.loaded}/${progressEvent.total}`);
+          }
+        },
+      });
+      const writer = response.data.pipe(require('fs').createWriteStream(filePath));
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+      videoPaths.push(`file '${filePath}'`);
+    } catch (error) {
+      console.error('Download error:', error);
+      QueueDB[userId] = QueueDB[userId].filter((id) => id !== messageId);
+      await ctx.reply('File skipped due to error!');
+    }
   }
 
-  try {
-    const reply = await ctx.reply(messageText, {
-      reply_markup: Markup.inlineKeyboard(testMarkup),
-      reply_to_message_id: ctx.message.message_id,
-    });
-    ReplyDB[ctx.from.id] = reply.message_id;
-    console.log('Reply sent successfully with message_id:', reply.message_id);
-  } catch (error) {
-    console.error('Error sending reply with markup:', error.stack);
-    const reply = await ctx.reply(messageText, {
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('Merge Now', 'mergeNow')],
-        [Markup.button.callback('Clear Files', 'cancelProcess')],
-      ]),
-      reply_to_message_id: ctx.message.message_id,
-    });
-    ReplyDB[ctx.from.id] = reply.message_id;
-    console.log('Fallback reply sent with message_id:', reply.message_id);
+  if (videoPaths.length < 2) {
+    await ctx.reply('Not enough valid videos to merge!');
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
   }
+
+  await fs.writeFile(inputFile, videoPaths.join('\n'));
+  const mergedVidPath = await mergeVideo(inputFile, userId, ctx, FormatDB[userId]);
+  if (!mergedVidPath) {
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
+  }
+
+  const fileSize = (await fs.stat(mergedVidPath)).size;
+  if (fileSize > 2097152000) {
+    await ctx.reply(`File too large (${humanbytes(fileSize)}). Uploading to Streamtape...`);
+    await uploadToStreamtape(mergedVidPath, ctx, fileSize);
+    await deleteAll(userDir);
+    delete QueueDB[userId];
+    delete FormatDB[userId];
+    return;
+  }
+
+  await ctx.reply('Extracting video data...');
+  const { duration, width, height } = await getVideoMetadata(mergedVidPath);
+  let thumbnail = await getThumbnail(userId);
+  if (thumbnail) {
+    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
+    await downloadFile(ctx, thumbnail, thumbPath);
+    await sharp(thumbPath).resize(width, height).jpeg().toFile(thumbPath);
+    thumbnail = thumbPath;
+  } else {
+    thumbnail = await generateThumbnail(mergedVidPath, userId, duration);
+  }
+
+  const shouldGenerateSs = await getGenerateSs(userId);
+  const shouldGenerateSample = await getGenerateSampleVideo(userId);
+  if (shouldGenerateSs) {
+    const screenshots = await generateScreenshots(mergedVidPath, path.join(downPath, userId.toString()), 4, duration);
+    if (screenshots.length > 0) {
+      await ctx.replyWithMediaGroup(
+        screenshots.map((s) => ({ type: 'photo', media: { source: s } }))
+      );
+    }
+  }
+  if (shouldGenerateSample) {
+    const samplePath = await cutSmallVideo(
+      mergedVidPath,
+      path.join(downPath, userId.toString()),
+      0,
+      Math.min(30, duration),
+      FormatDB[userId]
+    );
+    if (samplePath) {
+      await ctx.replyWithVideo({ source: samplePath }, { caption: 'Sample Video' });
+    }
+  }
+
+  const startTime = Date.now() / 1000;
+  await uploadVideo(ctx, mergedVidPath, width, height, duration, thumbnail, fileSize, startTime);
+  await deleteAll(path.join(downPath, userId.toString()));
+  delete QueueDB[userId];
+  delete FormatDB[userId];
+});
+
+// دستور /clear
+bot.command('clear', async (ctx) => {
+  const userId = ctx.from.id;
+  await ctx.reply('Cancelling process...');
+  await deleteAll(path.join(downPath, userId.toString()));
+  delete QueueDB[userId];
+  delete FormatDB[userId];
+  await ctx.reply('Queue cleared successfully!');
 });
 
 // مدیریت عکس (تامبنیل)
@@ -872,90 +903,12 @@ bot.command('check', async (ctx) => {
 });
 
 // مدیریت Callbackها
-bot.action('mergeNow', async (ctx) => {
-  const userId = ctx.from.id;
-  if (!QueueDB[userId] || QueueDB[userId].length < 2) {
-    await ctx.answerCbQuery('Need at least 2 videos to merge!', { show_alert: true });
-    await ctx.deleteMessage();
-    return;
-  }
-
-  await ctx.editMessageText('Preparing to merge videos...');
-  const userDir = await ensureDir(userId);
-  const inputFile = path.join(userDir, 'input.txt');
-  const videoPaths = [];
-
-  for (const messageId of QueueDB[userId].sort()) {
-    try {
-      const message = await ctx.telegram.getMessages(ctx.chat.id, messageId);
-      const video = message[0].video;
-      const filePath = path.join(userDir, `${messageId}.${FormatDB[userId]}`);
-      await ctx.editMessageText(`Downloading ${video.file_name || 'unnamed_file'}...`);
-      const startTime = Date.now() / 1000;
-      await downloadFile(ctx, video.file_id, filePath, (current, total) =>
-        progressForTelegraf(current, total, 'Downloading', ctx, startTime)
-      );
-      videoPaths.push(`file '${filePath}'`);
-    } catch (error) {
-      console.error('Download error:', error);
-      QueueDB[userId] = QueueDB[userId].filter((id) => id !== messageId);
-      await ctx.editMessageText('File skipped!');
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
-  }
-
-  if (videoPaths.length < 2) {
-    await ctx.editMessageText('Not enough valid videos to merge!');
-    await deleteAll(userDir);
-    delete QueueDB[userId];
-    delete FormatDB[userId];
-    return;
-  }
-
-  await fs.writeFile(inputFile, videoPaths.join('\n'));
-  const mergedVidPath = await mergeVideo(inputFile, userId, ctx, FormatDB[userId]);
-  if (!mergedVidPath) {
-    await deleteAll(userDir);
-    delete QueueDB[userId];
-    delete FormatDB[userId];
-    return;
-  }
-
-  const fileSize = (await fs.stat(mergedVidPath)).size;
-  if (fileSize > 2097152000) {
-    await ctx.editMessageText(`File too large (${humanbytes(fileSize)}). Uploading to Streamtape...`);
-    await uploadToStreamtape(mergedVidPath, ctx, fileSize);
-    await deleteAll(userDir);
-    delete QueueDB[userId];
-    delete FormatDB[userId];
-    return;
-  }
-
-  await ctx.editMessageText(
-    'Do you want to rename the file?',
-    {
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('Rename File', 'renameFile_Yes')],
-        [Markup.button.callback('Keep Default', 'renameFile_No')],
-      ]),
-    }
-  );
-});
-
-bot.action('cancelProcess', async (ctx) => {
-  await ctx.editMessageText('Cancelling process...');
-  await deleteAll(path.join(downPath, ctx.from.id.toString()));
-  delete QueueDB[ctx.from.id];
-  delete FormatDB[ctx.from.id];
-  await ctx.editMessageText('Process cancelled!');
-});
-
 bot.action('showThumbnail', async (ctx) => {
   try {
     const fileId = await getThumbnail(ctx.from.id);
     if (fileId) {
       await ctx.answerCbQuery('Sending thumbnail...');
-      await ctx.telegram.sendPhoto(ctx.chat.id, fileId, {
+      await ctx.replyWithPhoto(fileId, {
         reply_markup: Markup.inlineKeyboard([[Markup.button.callback('Delete Thumbnail', 'deleteThumbnail')]]),
       });
     } else {
@@ -981,134 +934,21 @@ bot.action('deleteThumbnail', async (ctx) => {
   }
 });
 
-bot.action('showQueueFiles', async (ctx) => {
-  try {
-    const markup = await makeButtons(ctx, ctx.message, QueueDB);
-    await ctx.editMessageText('Queue Files:', { reply_markup: Markup.inlineKeyboard(markup) });
-  } catch (error) {
-    console.error('Show queue error:', error);
-    await ctx.answerCbQuery('Error showing queue files.');
-  }
-});
-
-bot.action(/showFileName_(\d+)/, async (ctx) => {
-  const messageId = parseInt(ctx.match[1]);
-  try {
-    const message = await ctx.telegram.getMessages(ctx.chat.id, messageId);
-    const media = message[0].video || message[0].document;
-    if (media) {
-      await ctx.answerCbQuery(`File: ${media.file_name || 'unnamed_file'}`, { show_alert: true });
-    } else {
-      await ctx.answerCbQuery('File not found!', { show_alert: true });
-    }
-  } catch (error) {
-    console.error('Show file name error:', error);
-    await ctx.answerCbQuery('Error fetching file.');
-  }
-});
-
-bot.action('openSettings', async (ctx) => {
-  await openSettings(ctx, ctx.message);
-});
-
 bot.action('refreshFsub', async (ctx) => {
   if ((await forceSub(ctx)) === 200) {
     await ctx.editMessageText(
-      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
-      {
-        reply_markup: Markup.inlineKeyboard([
-          [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
-          [
-            Markup.button.url('Support Group', 'https://t.me/Savior_128'),
-            Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
-          ],
-          [Markup.button.callback('Open Settings', 'openSettings')],
-          [Markup.button.callback('Close', 'closeMeh')],
-        ]),
-      }
+      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nAvailable Commands:\n/start - Start the bot\n/add - Add a video to queue\n/merge - Merge videos\n/clear - Clear queue\n/settings - Open settings\n\nMade by @Savior_128`,
+      { reply_markup: await createReplyMarkup() }
     );
   }
-});
-
-bot.action(/renameFile_(Yes|No)/, async (ctx) => {
-  const userId = ctx.from.id;
-  if (!QueueDB[userId] || QueueDB[userId].length === 0) {
-    await ctx.answerCbQuery('Queue is empty!', { show_alert: true });
-    return;
-  }
-
-  let mergedVidPath = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${FormatDB[userId]}`);
-  if (ctx.match[1] === 'Yes') {
-    await ctx.editMessageText('Send the new file name:');
-    const newName = await waitForText(ctx);
-    if (newName) {
-      const safeName = newName.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
-      const newPath = path.join(downPath, userId.toString(), `${safeName}.${FormatDB[userId]}`);
-      await fs.rename(mergedVidPath, newPath);
-      mergedVidPath = newPath;
-      await ctx.editMessageText(`Renamed to ${safeName}.${FormatDB[userId]}`);
-    } else {
-      await ctx.editMessageText('No name provided. Using default name.');
-    }
-  }
-
-  await ctx.editMessageText('Extracting video data...');
-  const { duration, width, height } = await getVideoMetadata(mergedVidPath);
-  const fileSize = (await fs.stat(mergedVidPath)).size;
-  let thumbnail = await getThumbnail(userId);
-  if (thumbnail) {
-    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
-    await downloadFile(ctx, thumbnail, thumbPath);
-    await sharp(thumbPath).resize(width, height).jpeg().toFile(thumbPath);
-    thumbnail = thumbPath;
-  } else {
-    thumbnail = await generateThumbnail(mergedVidPath, userId, duration);
-  }
-
-  const shouldGenerateSs = await getGenerateSs(userId);
-  const shouldGenerateSample = await getGenerateSampleVideo(userId);
-  if (shouldGenerateSs) {
-    const screenshots = await generateScreenshots(mergedVidPath, path.join(downPath, userId.toString()), 4, duration);
-    if (screenshots.length > 0) {
-      await ctx.telegram.sendMediaGroup(
-        ctx.chat.id,
-        screenshots.map((s) => ({ type: 'photo', media: { source: s } }))
-      );
-    }
-  }
-  if (shouldGenerateSample) {
-    const samplePath = await cutSmallVideo(
-      mergedVidPath,
-      path.join(downPath, userId.toString()),
-      0,
-      Math.min(30, duration),
-      FormatDB[userId]
-    );
-    if (samplePath) {
-      await ctx.telegram.sendVideo(ctx.chat.id, { source: samplePath }, { caption: 'Sample Video' });
-    }
-  }
-
-  const startTime = Date.now() / 1000;
-  await uploadVideo(ctx, mergedVidPath, width, height, duration, thumbnail, fileSize, startTime);
-  await deleteAll(path.join(downPath, userId.toString()));
-  delete QueueDB[userId];
-  delete FormatDB[userId];
 });
 
 // توابع کمکی
-async function downloadFile(ctx, fileId, filePath, progressCallback) {
+async function downloadFile(ctx, fileId, filePath) {
   try {
     const file = await ctx.telegram.getFile(fileId);
     const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
-    const response = await axios.get(url, {
-      responseType: 'stream',
-      onDownloadProgress: (progressEvent) => {
-        if (progressCallback && progressEvent.total) {
-          progressCallback(progressEvent.loaded, progressEvent.total);
-        }
-      },
-    });
+    const response = await axios.get(url, { responseType: 'stream' });
     const writer = response.data.pipe(require('fs').createWriteStream(filePath));
     await new Promise((resolve, reject) => {
       writer.on('finish', resolve);
@@ -1146,7 +986,6 @@ async function openSettings(ctx, message) {
       [Markup.button.callback(`Generate Sample Video ${generateSampleVideo ? '✅' : '❌'}`, 'triggerGenSample')],
       [Markup.button.callback(`Generate Screenshots ${generateSs ? '✅' : '❌'}`, 'triggerGenSS')],
       [Markup.button.callback('Show Thumbnail', 'showThumbnail')],
-      [Markup.button.callback('Show Queue Files', 'showQueueFiles')],
       [Markup.button.callback('Close', 'closeMeh')],
     ]);
 
@@ -1170,22 +1009,6 @@ async function openSettings(ctx, message) {
       console.error('Reply error:', replyError);
     }
   }
-}
-
-async function waitForText(ctx) {
-  return new Promise((resolve) => {
-    const handler = (ctx) => {
-      if (ctx.message.text) {
-        bot.removeListener('text', handler);
-        resolve(ctx.message.text);
-      }
-    };
-    bot.on('text', handler);
-    setTimeout(() => {
-      bot.removeListener('text', handler);
-      resolve(null);
-    }, 300000);
-  });
 }
 
 async function generateThumbnail(filePath, userId, duration) {
