@@ -34,14 +34,14 @@ if (!mongoUri) {
   throw new Error('MONGODB_URI is not defined');
 }
 const broadcastAsCopy = process.env.BROADCAST_AS_COPY === 'true';
-const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @AbirHasan2005';
+const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUsername}\n\nMade by @Savior_128';
 
 // MongoDB اتصال
 let db;
 async function connectMongoDB() {
   try {
-    console.log('MONGODB_URI:', process.env.MONGODB_URI); // لاگ برای دیباگ
-    const client = await MongoClient.connect(process.env.MONGODB_URI, { useUnifiedTopology: true });
+    console.log('MONGODB_URI value:', mongoUri); // لاگ برای دیباگ
+    const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
     console.log('Connected to MongoDB');
     if (botOwner) {
@@ -82,7 +82,7 @@ async function ensureDir(userId) {
 async function createReplyMarkup() {
   try {
     return Markup.inlineKeyboard([
-      [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
+      [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
       [
         Markup.button.url('Support Group', 'https://t.me/linux_repo'),
         Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
@@ -344,7 +344,7 @@ async function runFffmpegCommand(command) {
 }
 
 async function mergeVideo(inputFile, userId, ctx, format) {
-  const outputVid = path.join(downPath, userId.toString(), `[@AbirHasan2005]_Merged.${format.toLowerCase()}`);
+  const outputVid = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${format.toLowerCase()}`);
   const command = [
     'ffmpeg',
     '-f',
@@ -581,10 +581,10 @@ bot.start(async (ctx) => {
   await addUserToDatabase(ctx);
   if ((await forceSub(ctx)) !== 200) return;
   await ctx.reply(
-    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @AbirHasan2005`,
+    `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
     {
       reply_markup: Markup.inlineKeyboard([
-        [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
+        [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
         [
           Markup.button.url('Support Group', 'https://t.me/linux_repo'),
           Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
@@ -952,10 +952,10 @@ bot.action('openSettings', async (ctx) => {
 bot.action('refreshFsub', async (ctx) => {
   if ((await forceSub(ctx)) === 200) {
     await ctx.editMessageText(
-      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @AbirHasan2005`,
+      `Hi Unkil, I am Video Merge Bot!\nI can Merge Multiple Videos in One Video. Video Formats should be same.\n\nMade by @Savior_128`,
       {
         reply_markup: Markup.inlineKeyboard([
-          [Markup.button.url('Developer - @AbirHasan2005', 'https://t.me/AbirHasan2005')],
+          [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
           [
             Markup.button.url('Support Group', 'https://t.me/linux_repo'),
             Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
@@ -975,7 +975,7 @@ bot.action(/renameFile_(Yes|No)/, async (ctx) => {
     return;
   }
 
-  let mergedVidPath = path.join(downPath, userId.toString(), `[@AbirHasan2005]_Merged.${FormatDB[userId]}`);
+  let mergedVidPath = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${FormatDB[userId]}`);
   if (ctx.match[1] === 'Yes') {
     await ctx.editMessageText('Send the new file name:');
     const newName = await waitForText(ctx);
