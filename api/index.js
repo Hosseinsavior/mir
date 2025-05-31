@@ -286,7 +286,7 @@ async function makeButtons(ctx, message, dbQueue) {
   try {
     console.log('makeButtons called for user:', message.from.id);
     console.log('QueueDB for user:', dbQueue[message.from.id]);
-    
+
     if (!dbQueue[message.from.id] || dbQueue[message.from.id].length === 0) {
       console.log('Queue is empty, adding default buttons');
       markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
@@ -294,17 +294,11 @@ async function makeButtons(ctx, message, dbQueue) {
       return markup;
     }
 
-    const messages = await ctx.telegram.getMessages(message.chat.id, dbQueue[message.from.id]);
-    console.log('Messages retrieved:', messages.length);
-
-    for (const msg of messages) {
-      const media = msg.video || msg.document;
-      if (media) {
-        console.log('Adding button for message:', msg.message_id, 'File:', media.file_name);
-        markup.push([Markup.button.callback(media.file_name || 'unnamed_file', `showFileName_${msg.message_id}`)]);
-      } else {
-        console.log('No media found in message:', msg.message_id);
-      }
+    // ساخت دکمه‌ها بر اساس message_idها توی QueueDB
+    for (const messageId of dbQueue[message.from.id]) {
+      console.log('Processing message_id:', messageId);
+      // اینجا فرض می‌کنیم فایل‌ها قبلاً بررسی شدن، پس یه نام پیش‌فرض می‌دیم
+      markup.push([Markup.button.callback(`Video_${messageId}`, `showFileName_${messageId}`)]);
     }
 
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
@@ -648,6 +642,8 @@ bot.on('video', async (ctx) => {
   const fileName = file.file_name || 'video.mp4';
   const extension = fileName.split('.').pop().toLowerCase();
 
+  console.log('Processing video from user:', ctx.from.id, 'File:', fileName);
+
   if (!['mp4', 'mkv', 'webm'].includes(extension)) {
     return ctx.reply('Only MP4, MKV, or WEBM videos are allowed!', { reply_to_message_id: ctx.message.message_id });
   }
@@ -675,12 +671,13 @@ bot.on('video', async (ctx) => {
   }
 
   QueueDB[ctx.from.id].push(ctx.message.message_id);
+  console.log('Updated QueueDB:', QueueDB[ctx.from.id]);
   const messageText = QueueDB[ctx.from.id].length === maxVideos ? 'Press Merge Now!' : 'Send next video or press Merge Now!';
   const markup = await makeButtons(ctx, ctx.message, QueueDB);
-  console.log('Markup before sending:', markup);
+  console.log('Markup generated:', markup);
 
   if (!markup || markup.length === 0) {
-    console.error('Markup is empty, falling back to default buttons');
+    console.error('Markup is empty or invalid, using default buttons');
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
     markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
   }
@@ -706,7 +703,7 @@ bot.on('video', async (ctx) => {
       reply_to_message_id: ctx.message.message_id,
     });
     ReplyDB[ctx.from.id] = reply.message_id;
-    console.log('Reply sent with message_id:', reply.message_id);
+    console.log('Reply sent successfully with message_id:', reply.message_id);
   } catch (error) {
     console.error('Error sending reply with markup:', error);
     const reply = await ctx.reply(messageText, {
@@ -717,6 +714,7 @@ bot.on('video', async (ctx) => {
       reply_to_message_id: ctx.message.message_id,
     });
     ReplyDB[ctx.from.id] = reply.message_id;
+    console.log('Fallback reply sent with message_id:', reply.message_id);
   }
 });
 
