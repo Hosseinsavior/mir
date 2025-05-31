@@ -25,6 +25,6 @@
     "STREAMTAPE_API_PASS": "",
     "MONGODB_URI": "",
     "BROADCAST_AS_COPY": "true",
-    "CAPTION_TEMPLATE": "Video Merged by {botUsername}\\n\\nMade by @AbirHasan2005"
+    "CAPTION_TEMPLATE": "Video Merged by @{botUsername}\\n\\nMade by @Savior_128"
   }
 }
