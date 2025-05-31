@@ -23,7 +23,7 @@ const timeGap = parseInt(process.env.TIME_GAP) || 5;
 const maxVideos = parseInt(process.env.MAX_VIDEOS) || 5;
 const streamtapeUsername = process.env.STREAMTAPE_API_USERNAME;
 const streamtapePass = process.env.STREAMTAPE_API_PASS;
-const mongoUri = process.env.MONGODB_URI;
+const mongoUri = 'mongodb+srv://saviorsann:TDzeYsGIJwvVkRy4@cluster0.9otjsyr.mongodb.net/video_merge_bot?retryWrites=true&w=majority';
 if (!mongoUri) {
   console.error('MONGODB_URI is not defined');
   if (botOwner) {
