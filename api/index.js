@@ -5,14 +5,12 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const sharp = require('sharp');
 const si = require('systeminformation');
-const { exec } = require('child_process');
+const { spawn } = require('child_process'); // برای اجرای FFmpeg
 const fs = require('fs').promises;
 const path = require('path');
-const util = require('util');
-const execPromise = util.promisify(exec);
 const crypto = require('crypto');
 const FormData = require('form-data');
-
+const ffmpegPath = require('ffmpeg-static');
 // متغیرهای محیطی
 const botToken = '5115356918:AAFH3T-1f2x4ZdikRQnNoOXXgonLUlwryAQ';
 const botOwner = process.env.BOT_OWNER || '5059280908';
@@ -331,19 +329,7 @@ async function uploadToStreamtape(file, ctx, fileSize) {
   }
 }
 
-// FFmpeg
-async function runFffmpegCommand(command) {
-  try {
-    const { stdout, stderr } = await execPromise(command.join(' '));
-    console.log('FFmpeg stdout:', stdout);
-    if (stderr) console.log('FFmpeg stderr:', stderr);
-    return { stdout, stderr };
-  } catch (error) {
-    console.error('FFmpeg error:', error);
-    throw error;
-  }
-}
-
+// توابع FFmpeg با spawn
 async function mergeVideo(inputFile, userId, ctx, format) {
   const outputVid = path.join(downPath, userId.toString(), `[@Savior_128]_Merged.${format.toLowerCase()}`);
   const command = [
@@ -359,22 +345,57 @@ async function mergeVideo(inputFile, userId, ctx, format) {
     outputVid,
   ];
 
-  try {
-    await ctx.editMessageText('Merging Video Now ...\n\nPlease Keep Patience ...');
-    await runFffmpegCommand(command);
-    if (await fs.access(outputVid).then(() => true).catch(() => false)) {
-      return outputVid;
-    }
-    console.log('Merged video file does not exist.');
-    return null;
-  } catch (error) {
+  console.log(`DEBUG: Running FFmpeg command: ${command.join(' ')}`);
+
+  return new Promise((resolve) => {
+    let process;
     try {
-      await ctx.editMessageText(`An error occurred while merging videos: ${error.message}`);
-    } catch (editError) {
-      await ctx.reply(`An error occurred while merging videos: ${error.message}`);
+      process = spawn('ffmpeg', command.slice(1), {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      console.error('DEBUG: FFmpeg spawn error:', error.stack);
+      ctx.reply('Unable to execute FFmpeg command! Please contact support.');
+      resolve(null);
+      return;
     }
-    return null;
-  }
+
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('DEBUG: FFmpeg stdout:', data.toString());
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.log('DEBUG: FFmpeg stderr:', data.toString());
+    });
+
+    process.on('error', (error) => {
+      console.error('DEBUG: FFmpeg process error:', error.stack);
+      ctx.reply(`FFmpeg error: ${error.message}`);
+      resolve(null);
+    });
+
+    process.on('close', async (code) => {
+      console.log(`DEBUG: FFmpeg process exited with code ${code}`);
+      if (code === 0 && (await fs.access(outputVid).then(() => true).catch(() => false))) {
+        console.log(`DEBUG: Merged video created at ${outputVid}`);
+        resolve(outputVid);
+      } else {
+        console.log('DEBUG: Merged video file does not exist.');
+        await ctx.reply(`Failed to merge videos! FFmpeg exited with code ${code}\nError: ${stderr}`);
+        resolve(null);
+      }
+    });
+
+    ctx.editMessageText('Merging Video Now ...\n\nPlease Keep Patience ...').catch((err) => {
+      console.error('DEBUG: Edit message error:', err.stack);
+      ctx.reply('Merging Video Now ...\n\nPlease Keep Patience ...');
+    });
+  });
 }
 
 async function cutSmallVideo(videoFile, outputDirectory, startTime, endTime, format) {
@@ -394,22 +415,46 @@ async function cutSmallVideo(videoFile, outputDirectory, startTime, endTime, for
     outputFileName,
   ];
 
-  try {
-    await runFffmpegCommand(command);
-    if (await fs.access(outputFileName).then(() => true).catch(() => false)) {
-      return outputFileName;
-    }
-    console.log('Cut video file does not exist.');
-    return null;
-  } catch (error) {
-    console.error('Cut video error:', error);
-    return null;
-  }
+  console.log(`DEBUG: Running FFmpeg command for cut: ${command.join(' ')}`);
+
+  return new Promise((resolve) => {
+    const process = spawn('ffmpeg', command.slice(1), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('DEBUG: FFmpeg stdout (cut):', data.toString());
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.log('DEBUG: FFmpeg stderr (cut):', data.toString());
+    });
+
+    process.on('error', (error) => {
+      console.error('DEBUG: FFmpeg process error (cut):', error.stack);
+      resolve(null);
+    });
+
+    process.on('close', async (code) => {
+      console.log(`DEBUG: FFmpeg process (cut) exited with code ${code}`);
+      if (code === 0 && (await fs.access(outputFileName).then(() => true).catch(() => false))) {
+        resolve(outputFileName);
+      } else {
+        console.log('DEBUG: Cut video file does not exist.');
+        resolve(null);
+      }
+    });
+  });
 }
 
 async function generateScreenshots(videoFile, outputDirectory, noOfPhotos, duration) {
   if (duration <= 0 || noOfPhotos <= 0) {
-    console.log('Invalid duration or number of photos.');
+    console.log('DEBUG: Invalid duration or number of photos.');
     return [];
   }
 
@@ -431,17 +476,101 @@ async function generateScreenshots(videoFile, outputDirectory, noOfPhotos, durat
       videoThumbnail,
     ];
 
-    try {
-      await runFffmpegCommand(command);
-      if (await fs.access(videoThumbnail).then(() => true).catch(() => false)) {
+    console.log(`DEBUG: Running FFmpeg command for screenshot: ${command.join(' ')}`);
+
+    const process = spawn('ffmpeg', command.slice(1), {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('DEBUG: FFmpeg stdout (screenshot):', data.toString());
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.log('DEBUG: FFmpeg stderr (screenshot):', data.toString());
+    });
+
+    process.on('error', (error) => {
+      console.error('DEBUG: FFmpeg process error (screenshot):', error.stack);
+    });
+
+    process.on('close', async (code) => {
+      console.log(`DEBUG: FFmpeg process (screenshot) exited with code ${code}`);
+      if (code === 0 && (await fs.access(videoThumbnail).then(() => true).catch(() => false))) {
         images.push(videoThumbnail);
       }
-    } catch (error) {
-      console.error('Screenshot error:', error);
-    }
+    });
+
     currentTtl += ttlStep;
   }
   return images;
+}
+
+// آپلود ویدیو
+async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fileSize, startTime) {
+  try {
+    console.log(`DEBUG: Starting upload for file: ${filePath}`);
+    const isUploadAsDoc = await getUploadAsDoc(ctx.from.id);
+    const botUsername = (await ctx.telegram.getMe()).username;
+    const fileName = path.basename(filePath);
+    const caption = captionTemplate.replace('{botUsername}', `@${botUsername}`);
+    let sent;
+
+    if (!isUploadAsDoc) {
+      sent = await ctx.telegram.sendVideo(
+        ctx.chat.id,
+        { source: filePath },
+        {
+          width,
+          height,
+          duration,
+          thumb: thumbnail,
+          caption,
+          parse_mode: 'Markdown',
+          reply_markup: await createReplyMarkup(),
+          progress: (current, total) => progressForTelegraf(current, total, 'Uploading Video ...', ctx, startTime),
+        }
+      );
+    } else {
+      sent = await ctx.telegram.sendDocument(
+        ctx.chat.id,
+        { source: filePath },
+        {
+          thumb: thumbnail,
+          caption,
+          parse_mode: 'Markdown',
+          reply_markup: await createReplyMarkup(),
+          progress: (current, total) => progressForTelegraf(current, total, 'Uploading Video ...', ctx, startTime),
+        }
+      );
+    }
+
+    console.log(`DEBUG: Upload completed, message_id: ${sent.message_id}`);
+
+    await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
+    if (logChannel) {
+      const forwarded = await sent.copy(logChannel);
+      await ctx.telegram.sendMessage(
+        logChannel,
+        `**User:** [${ctx.from.first_name}](tg://user?id=${ctx.from.id})\n**Username:** @${ctx.from.username || 'None'}\n**UserID:** \`${ctx.from.id}\``,
+        { reply_to_message_id: forwarded.message_id, parse_mode: 'Markdown', disable_web_page_preview: true }
+      );
+    }
+
+    await ctx.reply('Video uploaded successfully!');
+  } catch (error) {
+    console.error('DEBUG: Upload error:', error.stack);
+    try {
+      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
+    } catch (editError) {
+      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
+    }
+  }
 }
 
 // پیشرفت
@@ -519,62 +648,109 @@ function formatTimespan(seconds) {
   return `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${secs}s`;
 }
 
-// آپلود ویدیو
-async function uploadVideo(ctx, filePath, width, height, duration, thumbnail, fileSize, startTime) {
+// استخراج متادیتا ویدیو
+async function getVideoMetadata(filePath) {
   try {
-    const isUploadAsDoc = await getUploadAsDoc(ctx.from.id);
-    const botUsername = (await ctx.telegram.getMe()).username;
-    const fileName = path.basename(filePath);
-    const caption = captionTemplate.replace('{botUsername}', `@${botUsername}`);
-    let sent;
-
-    if (!isUploadAsDoc) {
-      sent = await ctx.telegram.sendVideo(
-        ctx.chat.id,
-        { source: filePath },
-        {
-          width,
-          height,
-          duration,
-          thumb: thumbnail,
-          caption,
-          parse_mode: 'Markdown',
-          reply_markup: await createReplyMarkup(),
-          progress: (current, total) => progressForTelegraf(current, total, 'Uploading Video ...', ctx, startTime),
-        }
-      );
-    } else {
-      sent = await ctx.telegram.sendDocument(
-        ctx.chat.id,
-        { source: filePath },
-        {
-          thumb: thumbnail,
-          caption,
-          parse_mode: 'Markdown',
-          reply_markup: await createReplyMarkup(),
-          progress: (current, total) => progressForTelegraf(current, total, 'Uploading Video ...', ctx, startTime),
-        }
-      );
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
-    if (logChannel) {
-      const forwarded = await sent.copy(logChannel);
-      await ctx.telegram.sendMessage(
-        logChannel,
-        `**User:** [${ctx.from.first_name}](tg://user?id=${ctx.from.id})\n**Username:** @${ctx.from.username || 'None'}\n**UserID:** \`${ctx.from.id}\``,
-        { reply_to_message_id: forwarded.message_id, parse_mode: 'Markdown', disable_web_page_preview: true }
-      );
-    }
-
-    await ctx.reply('Video uploaded successfully!');
+    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration:stream=width,height -of json ${filePath}`);
+    const data = JSON.parse(stdout);
+    return {
+      duration: Math.round(parseFloat(data.format.duration)),
+      width: data.streams[0].width || 100,
+      height: data.streams[0].height || 100,
+    };
   } catch (error) {
-    console.error('Upload error:', error);
-    try {
-      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
-    } catch (editError) {
-      await ctx.reply(`Failed to upload video!\nError: ${error.message}`);
+    console.error('Metadata error:', error);
+    return { duration: 1, width: 100, height: 100 };
+  }
+}
+
+// تولید تامبنیل
+async function generateThumbnail(filePath, userId, duration) {
+  try {
+    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
+    const ttl = Math.floor(Math.random() * duration);
+    const command = [
+      'ffmpeg',
+      '-i',
+      filePath,
+      '-ss',
+      ttl.toString(),
+      '-vframes',
+      '1',
+      thumbPath,
+    ];
+
+    console.log(`DEBUG: Running FFmpeg command for thumbnail: ${command.join(' ')}`);
+
+    return new Promise((resolve) => {
+      const process = spawn('ffmpeg', command.slice(1), {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+        console.log('DEBUG: FFmpeg stdout (thumbnail):', data.toString());
+      });
+
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+        console.log('DEBUG: FFmpeg stderr (thumbnail):', data.toString());
+      });
+
+      process.on('error', (error) => {
+        console.error('DEBUG: FFmpeg process error (thumbnail):', error.stack);
+        resolve(null);
+      });
+
+      process.on('close', async (code) => {
+        console.log(`DEBUG: FFmpeg process (thumbnail) exited with code ${code}`);
+        if (code === 0 && (await fs.access(thumbPath).then(() => true).catch(() => false))) {
+          await sharp(thumbPath).jpeg().toFile(thumbPath);
+          resolve(thumbPath);
+        } else {
+          console.log('DEBUG: Thumbnail file does not exist.');
+          resolve(null);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Thumbnail error:', error);
+    return null;
+  }
+}
+
+// دانلود فایل
+async function downloadFile(ctx, fileId, filePath) {
+  try {
+    const file = await ctx.telegram.getFile(fileId);
+    const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+    const response = await axios.get(url, { responseType: 'stream' });
+    const writer = response.data.pipe(require('fs').createWriteStream(filePath));
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+    });
+  } catch (error) {
+    console.error('Download file error:', error);
+    throw error;
+  }
+}
+
+// حذف همه فایل‌ها
+async function deleteAll(root) {
+  try {
+    if (await fs.access(root).then(() => true).catch(() => false)) {
+      await fs.rm(root, { recursive: true, force: true });
+      return true;
     }
+    console.log(`DEBUG: Folder '${root}' does not exist.`);
+    return false;
+  } catch (error) {
+    console.error(`DEBUG: Error deleting folder '${root}':`, error);
+    return false;
   }
 }
 
@@ -588,7 +764,7 @@ bot.start(async (ctx) => {
   );
 });
 
-// مدیریت ویدیوها با دستور /add
+// مدیریت ویدیوها با ارسال ویدیو
 bot.on('video', async (ctx) => {
   await addUserToDatabase(ctx);
   if ((await forceSub(ctx)) !== 200) return;
@@ -596,7 +772,7 @@ bot.on('video', async (ctx) => {
   const fileName = file.file_name || 'video.mp4';
   const extension = fileName.split('.').pop().toLowerCase();
 
-  console.log('Processing video from user:', ctx.from.id, 'File:', fileName);
+  console.log('DEBUG: Processing video from user:', ctx.from.id, 'File:', fileName);
 
   if (!['mp4', 'mkv', 'webm'].includes(extension)) {
     return ctx.reply('Only MP4, MKV, or WEBM videos are allowed!', { reply_to_message_id: ctx.message.message_id });
@@ -618,7 +794,7 @@ bot.on('video', async (ctx) => {
   }
 
   QueueDB[ctx.from.id].push(ctx.message.message_id);
-  console.log('Updated QueueDB:', JSON.stringify(QueueDB[ctx.from.id]));
+  console.log('DEBUG: Updated QueueDB:', JSON.stringify(QueueDB[ctx.from.id]));
   await ctx.reply(`Video added to queue! Total videos: ${QueueDB[ctx.from.id].length}\nUse /merge to combine or /clear to reset.`);
 });
 
@@ -634,18 +810,25 @@ bot.command('merge', async (ctx) => {
   const inputFile = path.join(userDir, 'input.txt');
   const videoPaths = [];
 
+  console.log(`DEBUG: Starting merge for user ${userId}, Queue: ${JSON.stringify(QueueDB[userId])}`);
+  console.log(`DEBUG: User directory: ${userDir}`);
+
   for (const messageId of QueueDB[userId].sort()) {
     try {
-      const file = (await ctx.telegram.getFileLink(messageId)).href;
+      console.log(`DEBUG: Processing message_id ${messageId}`);
+      const fileLink = await ctx.telegram.getFileLink(messageId);
+      console.log(`DEBUG: File link for ${messageId}: ${fileLink.href}`);
       const filePath = path.join(userDir, `${messageId}.${FormatDB[userId]}`);
+      console.log(`DEBUG: Saving to file path: ${filePath}`);
+
       await ctx.reply(`Downloading ${messageId}...`);
       const response = await axios({
         method: 'get',
-        url: file,
+        url: fileLink.href,
         responseType: 'stream',
         onDownloadProgress: (progressEvent) => {
           if (progressEvent.total) {
-            console.log(`Download progress: ${progressEvent.loaded}/${progressEvent.total}`);
+            console.log(`DEBUG: Download progress for ${messageId}: ${progressEvent.loaded}/${progressEvent.total}`);
           }
         },
       });
@@ -654,14 +837,16 @@ bot.command('merge', async (ctx) => {
         writer.on('finish', resolve);
         writer.on('error', reject);
       });
+      console.log(`DEBUG: Download completed for ${messageId}`);
       videoPaths.push(`file '${filePath}'`);
     } catch (error) {
-      console.error('Download error:', error);
+      console.error(`DEBUG: Download error for ${messageId}:`, error.stack);
       QueueDB[userId] = QueueDB[userId].filter((id) => id !== messageId);
-      await ctx.reply('File skipped due to error!');
+      await ctx.reply(`File ${messageId} skipped due to error!`);
     }
   }
 
+  console.log(`DEBUG: Total valid video paths: ${videoPaths.length}`);
   if (videoPaths.length < 2) {
     await ctx.reply('Not enough valid videos to merge!');
     await deleteAll(userDir);
@@ -671,14 +856,18 @@ bot.command('merge', async (ctx) => {
   }
 
   await fs.writeFile(inputFile, videoPaths.join('\n'));
+  console.log(`DEBUG: Input file created at ${inputFile} with content: ${videoPaths.join('\n')}`);
+
   const mergedVidPath = await mergeVideo(inputFile, userId, ctx, FormatDB[userId]);
   if (!mergedVidPath) {
+    console.log(`DEBUG: Merge failed for user ${userId}`);
     await deleteAll(userDir);
     delete QueueDB[userId];
     delete FormatDB[userId];
     return;
   }
 
+  console.log(`DEBUG: Merge successful, output path: ${mergedVidPath}`);
   const fileSize = (await fs.stat(mergedVidPath)).size;
   if (fileSize > 2097152000) {
     await ctx.reply(`File too large (${humanbytes(fileSize)}). Uploading to Streamtape...`);
@@ -944,36 +1133,6 @@ bot.action('refreshFsub', async (ctx) => {
 });
 
 // توابع کمکی
-async function downloadFile(ctx, fileId, filePath) {
-  try {
-    const file = await ctx.telegram.getFile(fileId);
-    const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
-    const response = await axios.get(url, { responseType: 'stream' });
-    const writer = response.data.pipe(require('fs').createWriteStream(filePath));
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
-  } catch (error) {
-    console.error('Download file error:', error);
-    throw error;
-  }
-}
-
-async function deleteAll(root) {
-  try {
-    if (await fs.access(root).then(() => true).catch(() => false)) {
-      await fs.rm(root, { recursive: true, force: true });
-      return true;
-    }
-    console.log(`Folder '${root}' does not exist.`);
-    return false;
-  } catch (error) {
-    console.error(`Error deleting folder '${root}':`, error);
-    return false;
-  }
-}
-
 async function openSettings(ctx, message) {
   try {
     if (!db) throw new Error('Database not connected');
@@ -1010,87 +1169,6 @@ async function openSettings(ctx, message) {
     }
   }
 }
-
-async function generateThumbnail(filePath, userId, duration) {
-  try {
-    const thumbPath = path.join(downPath, userId.toString(), 'thumbnail.jpg');
-    const ttl = Math.floor(Math.random() * duration);
-    await runFffmpegCommand([
-      'ffmpeg',
-      '-i',
-      filePath,
-      '-ss',
-      ttl.toString(),
-      '-vframes',
-      '1',
-      thumbPath,
-    ]);
-    await sharp(thumbPath).jpeg().toFile(thumbPath);
-    return thumbPath;
-  } catch (error) {
-    console.error('Thumbnail error:', error);
-    return null;
-  }
-}
-
-async function getVideoMetadata(filePath) {
-  try {
-    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration:stream=width,height -of json ${filePath}`);
-    const data = JSON.parse(stdout);
-    return {
-      duration: Math.round(parseFloat(data.format.duration)),
-      width: data.streams[0].width || 100,
-      height: data.streams[0].height || 100,
-    };
-  } catch (error) {
-    console.error('Metadata error:', error);
-    return { duration: 1, width: 100, height: 100 };
-  }
-}
-
-bot.action('triggerUploadMode', async (ctx) => {
-  try {
-    const uploadAsDoc = await getUploadAsDoc(ctx.from.id);
-    await setUploadAsDoc(ctx.from.id, !uploadAsDoc);
-    await openSettings(ctx, ctx.message);
-  } catch (error) {
-    console.error('Toggle upload mode error:', error);
-    await ctx.answerCbQuery('Error updating settings.');
-  }
-});
-
-bot.action('triggerGenSample', async (ctx) => {
-  try {
-    const generateSampleVideo = await getGenerateSampleVideo(ctx.from.id);
-    await setGenerateSampleVideo(ctx.from.id, !generateSampleVideo);
-    await openSettings(ctx, ctx.message);
-  } catch (error) {
-    console.error('Toggle sample video error:', error);
-    await ctx.answerCbQuery('Error updating settings.');
-  }
-});
-
-bot.action('triggerGenSS', async (ctx) => {
-  try {
-    const generateSs = await getGenerateSs(ctx.from.id);
-    await setGenerateSs(ctx.from.id, !generateSs);
-    await openSettings(ctx, ctx.message);
-  } catch (error) {
-    console.error('Toggle SS error:', error);
-    await ctx.answerCbQuery('Error updating settings.');
-  }
-});
-
-bot.action('closeMeh', async (ctx) => {
-  try {
-    await ctx.deleteMessage();
-    if (ctx.message.reply_to_message) {
-      await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id);
-    }
-  } catch (error) {
-    console.error('Close error:', error);
-  }
-});
 
 // راه‌اندازی ربات
 (async () => {
