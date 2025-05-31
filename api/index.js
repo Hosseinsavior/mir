@@ -21,8 +21,8 @@ const logChannel = process.env.LOG_CHANNEL || '';
 const downPath = process.env.DOWN_PATH || './downloads';
 const timeGap = parseInt(process.env.TIME_GAP) || 5;
 const maxVideos = parseInt(process.env.MAX_VIDEOS) || 5;
-const streamtapeUsername = process.env.STREAMTAPE_API_USERNAME;
-const streamtapePass = process.env.STREAMTAPE_API_PASS;
+const streamtapeUsername = 'e570d9deef272a462305';
+const streamtapePass = '3w8wLp7ZPludYbW';
 const mongoUri = 'mongodb+srv://saviorsann:TDzeYsGIJwvVkRy4@cluster0.9otjsyr.mongodb.net/video_merge_bot?retryWrites=true&w=majority';
 if (!mongoUri) {
   console.error('MONGODB_URI is not defined');
@@ -284,21 +284,40 @@ async function totalUsersCount() {
 async function makeButtons(ctx, message, dbQueue) {
   const markup = [];
   try {
-    const messages = await ctx.telegram.getMessages(message.chat.id, dbQueue[message.from.id] || []);
+    console.log('makeButtons called for user:', message.from.id);
+    console.log('QueueDB for user:', dbQueue[message.from.id]);
+    
+    if (!dbQueue[message.from.id] || dbQueue[message.from.id].length === 0) {
+      console.log('Queue is empty, adding default buttons');
+      markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
+      markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
+      return markup;
+    }
+
+    const messages = await ctx.telegram.getMessages(message.chat.id, dbQueue[message.from.id]);
+    console.log('Messages retrieved:', messages.length);
+
     for (const msg of messages) {
       const media = msg.video || msg.document;
       if (media) {
+        console.log('Adding button for message:', msg.message_id, 'File:', media.file_name);
         markup.push([Markup.button.callback(media.file_name || 'unnamed_file', `showFileName_${msg.message_id}`)]);
+      } else {
+        console.log('No media found in message:', msg.message_id);
       }
     }
+
     markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
     markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
   } catch (error) {
     console.error('Make buttons error:', error);
+    // دکمه‌های پیش‌فرض در صورت خطا
+    markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
+    markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
   }
+  console.log('Final markup:', markup);
   return markup;
 }
-
 // Streamtape
 async function uploadToStreamtape(file, ctx, fileSize) {
   try {
@@ -658,17 +677,47 @@ bot.on('video', async (ctx) => {
   QueueDB[ctx.from.id].push(ctx.message.message_id);
   const messageText = QueueDB[ctx.from.id].length === maxVideos ? 'Press Merge Now!' : 'Send next video or press Merge Now!';
   const markup = await makeButtons(ctx, ctx.message, QueueDB);
+  console.log('Markup before sending:', markup);
+
+  if (!markup || markup.length === 0) {
+    console.error('Markup is empty, falling back to default buttons');
+    markup.push([Markup.button.callback('Merge Now', 'mergeNow')]);
+    markup.push([Markup.button.callback('Clear Files', 'cancelProcess')]);
+  }
 
   const editable = await ctx.reply('Adding video to queue...', { reply_to_message_id: ctx.message.message_id });
   await new Promise((resolve) => setTimeout(resolve, timeGap * 1000));
   try {
     await ctx.telegram.editMessageText(ctx.chat.id, editable.message_id, null, 'Video added to queue!');
   } catch (editError) {
+    console.error('Edit message error:', editError);
     await ctx.reply('Video added to queue!');
   }
-  if (ReplyDB[ctx.from.id]) await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]).catch(() => {});
-  const reply = await ctx.reply(messageText, { reply_markup: Markup.inlineKeyboard(markup), reply_to_message_id: ctx.message.message_id });
-  ReplyDB[ctx.from.id] = reply.message_id;
+
+  if (ReplyDB[ctx.from.id]) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, ReplyDB[ctx.from.id]).catch((err) => {
+      console.error('Delete previous reply error:', err);
+    });
+  }
+
+  try {
+    const reply = await ctx.reply(messageText, {
+      reply_markup: Markup.inlineKeyboard(markup),
+      reply_to_message_id: ctx.message.message_id,
+    });
+    ReplyDB[ctx.from.id] = reply.message_id;
+    console.log('Reply sent with message_id:', reply.message_id);
+  } catch (error) {
+    console.error('Error sending reply with markup:', error);
+    const reply = await ctx.reply(messageText, {
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('Merge Now', 'mergeNow')],
+        [Markup.button.callback('Clear Files', 'cancelProcess')],
+      ]),
+      reply_to_message_id: ctx.message.message_id,
+    });
+    ReplyDB[ctx.from.id] = reply.message_id;
+  }
 });
 
 // مدیریت عکس (تامبنیل)
