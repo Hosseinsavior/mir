@@ -40,7 +40,9 @@ const captionTemplate = process.env.CAPTION_TEMPLATE || 'Video Merged by {botUse
 let db;
 async function connectMongoDB() {
   try {
-    console.log('MONGODB_URI value:', mongoUri); // لاگ برای دیباگ
+    console.log('MONGODB_URI value:', mongoUri);
+    console.log('Attempting to connect to MongoDB...');
+console.log('Connected to MongoDB successfully');
     const client = await MongoClient.connect(mongoUri, { useUnifiedTopology: true });
     db = client.db('video_merge_bot');
     console.log('Connected to MongoDB');
@@ -84,7 +86,7 @@ async function createReplyMarkup() {
     return Markup.inlineKeyboard([
       [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
       [
-        Markup.button.url('Support Group', 'https://t.me/linux_repo'),
+        Markup.button.url('Support Group', 'https://t.me/Savior_128'),
         Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
       ],
     ]);
@@ -97,10 +99,22 @@ async function createReplyMarkup() {
 // افزودن کاربر به دیتابیس
 async function addUserToDatabase(ctx) {
   try {
-    if (!db) throw new Error('Database not connected');
+    // بررسی اتصال به دیتابیس
+    if (!db) {
+      console.error('Database not connected in addUserToDatabase');
+      await ctx.reply(
+        'Sorry, the bot cannot connect to the database right now. Please try again later or contact the [Support Group](https://t.me/Savior_128).',
+        { parse_mode: 'Markdown', disable_web_page_preview: true }
+      );
+      return; // توقف اجرا اگه دیتابیس متصل نباشه
+    }
+
     const userId = ctx.from.id;
+    console.log(`Checking if user ${userId} exists in the database...`); // لاگ برای دیباگ
     const userExists = await db.collection('users').findOne({ id: userId });
+    
     if (!userExists) {
+      console.log(`User ${userId} does not exist. Adding to database...`); // لاگ برای دیباگ
       await db.collection('users').insertOne({
         id: userId,
         join_date: new Date().toISOString().split('T')[0],
@@ -111,6 +125,9 @@ async function addUserToDatabase(ctx) {
         username: ctx.from.username || 'unknown',
         updated_at: new Date(),
       });
+      console.log(`User ${userId} added to database successfully.`); // لاگ برای دیباگ
+
+      // ارسال پیام به کانال لاگ اگه تنظیم شده باشه
       if (logChannel) {
         const botUsername = (await ctx.telegram.getMe()).username;
         await ctx.telegram.sendMessage(
@@ -118,13 +135,19 @@ async function addUserToDatabase(ctx) {
           `#NEW_USER: \n\nNew User [${ctx.from.first_name}](tg://user?id=${userId}) started @${botUsername} !!`,
           { parse_mode: 'Markdown' }
         );
+        console.log(`Sent new user notification to log channel for user ${userId}.`); // لاگ برای دیباگ
       }
+    } else {
+      console.log(`User ${userId} already exists in the database.`); // لاگ برای دیباگ
     }
   } catch (error) {
     console.error('Add user error:', error);
+    await ctx.reply(
+      'An error occurred while adding you to the database. Please try again later or contact the [Support Group](https://t.me/Savior_128).',
+      { parse_mode: 'Markdown', disable_web_page_preview: true }
+    );
   }
 }
-
 // بررسی عضویت در کانال
 async function forceSub(ctx) {
   if (!updatesChannel) return 200;
@@ -134,7 +157,7 @@ async function forceSub(ctx) {
     const user = await ctx.telegram.getChatMember(chatId, ctx.from.id);
     if (user.status === 'kicked') {
       await ctx.reply(
-        'Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/linux_repo).',
+        'Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/Savior_128).',
         { parse_mode: 'Markdown', disable_web_page_preview: true }
       );
       return 400;
@@ -160,7 +183,7 @@ async function forceSub(ctx) {
     }
     console.error('ForceSub error:', error);
     await ctx.reply(
-      `Something went wrong: ${error.message}\nContact my [Support Group](https://t.me/linux_repo).`,
+      `Something went wrong: ${error.message}\nContact my [Support Group](https://t.me/Savior_128).`,
       { parse_mode: 'Markdown', disable_web_page_preview: true }
     );
     return 400;
@@ -321,7 +344,7 @@ async function uploadToStreamtape(file, ctx, fileSize) {
     console.error('Streamtape error:', error);
     try {
       await ctx.reply(
-        'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/linux_repo).',
+        'Sorry, Something went wrong!\n\nCan\'t Upload to Streamtape. You can report at [Support Group](https://t.me/Savior_128).',
         { parse_mode: 'Markdown' }
       );
     } catch (replyError) {
@@ -586,7 +609,7 @@ bot.start(async (ctx) => {
       reply_markup: Markup.inlineKeyboard([
         [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
         [
-          Markup.button.url('Support Group', 'https://t.me/linux_repo'),
+          Markup.button.url('Support Group', 'https://t.me/Savior_128'),
           Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
         ],
         [Markup.button.callback('Open Settings', 'openSettings')],
@@ -957,7 +980,7 @@ bot.action('refreshFsub', async (ctx) => {
         reply_markup: Markup.inlineKeyboard([
           [Markup.button.url('Developer - @Savior_128', 'https://t.me/Savior_128')],
           [
-            Markup.button.url('Support Group', 'https://t.me/linux_repo'),
+            Markup.button.url('Support Group', 'https://t.me/Savior_128'),
             Markup.button.url('Bots Channel', 'https://t.me/Discovery_Updates'),
           ],
           [Markup.button.callback('Open Settings', 'openSettings')],
